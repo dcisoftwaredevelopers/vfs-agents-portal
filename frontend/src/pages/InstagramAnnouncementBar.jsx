@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import './InstagramAnnouncementBar.css';
 
 const InstagramIcon = ({ size = 16, className = '' }) => (
@@ -22,52 +22,55 @@ const InstagramIcon = ({ size = 16, className = '' }) => (
 );
 
 const announcementItems = [
-  {
-    text: '📢 See Our Latest Instagram Post',
-    showInstagramIcon: true,
-  },
-  {
-    text: 'Visa Updates',
-  },
-  {
-    text: 'Success Stories',
-  },
-  {
-    text: 'Immigration News',
-  },
-  {
-    text: 'Special Offers',
-  },
+  { text: '📢 See Our Latest Instagram Post', showInstagramIcon: true },
+  { text: 'Visa Updates' },
+  { text: 'Success Stories' },
+  { text: 'Immigration News' },
+  { text: 'Special Offers' },
 ];
 
 const InstagramAnnouncementBar = () => {
   const [navbarHeight, setNavbarHeight] = useState(119);
-
   const instagramUrl =
     'https://www.instagram.com/dream_catcher_immigrations?igsh=MWJ1Y2c5d3J4eHptbg==';
+
   useEffect(() => {
-    const navbar = document.querySelector('.navbar');
+    let resizeObserver;
+    let rafId;
 
-    if (!navbar) return undefined;
+    const findAndObserveNavbar = () => {
+      const navbar = document.querySelector('.navbar');
+      if (!navbar) {
+        // navbar not mounted yet, retry next frame
+        rafId = requestAnimationFrame(findAndObserveNavbar);
+        return;
+      }
 
-    const updateNavbarHeight = () => {
-      setNavbarHeight(navbar.getBoundingClientRect().height);
+      const updateNavbarHeight = () => {
+        setNavbarHeight(navbar.getBoundingClientRect().height);
+      };
+
+      updateNavbarHeight();
+
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(updateNavbarHeight);
+        resizeObserver.observe(navbar);
+      }
+
+      window.addEventListener('resize', updateNavbarHeight);
+
+      // store cleanup on window scope via closure
+      findAndObserveNavbar.cleanup = () => {
+        resizeObserver?.disconnect();
+        window.removeEventListener('resize', updateNavbarHeight);
+      };
     };
 
-    updateNavbarHeight();
-
-    let resizeObserver;
-
-    if ('ResizeObserver' in window) {
-      resizeObserver = new ResizeObserver(updateNavbarHeight);
-      resizeObserver.observe(navbar);
-    }
-
-    window.addEventListener('resize', updateNavbarHeight);
+    findAndObserveNavbar();
 
     return () => {
-      resizeObserver?.disconnect();
-      window.removeEventListener('resize', updateNavbarHeight);
+      if (rafId) cancelAnimationFrame(rafId);
+      findAndObserveNavbar.cleanup?.();
     };
   }, []);
 
@@ -77,18 +80,13 @@ const InstagramAnnouncementBar = () => {
       aria-hidden={groupKey === 'duplicate'}
     >
       {[...announcementItems, ...announcementItems].map((item, index) => (
-        <React.Fragment key={`${groupKey}-${item.text}-${index}`}>
+        <React.Fragment key={`${groupKey}-${index}`}>
           <span className="marquee-item">
             {item.showInstagramIcon && (
-              <InstagramIcon
-                size={16}
-                className="instagram-icon"
-              />
+              <InstagramIcon size={16} className="instagram-icon" />
             )}
-
             <span>{item.text}</span>
           </span>
-
           <span className="separator" aria-hidden="true">
             •
           </span>
