@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import './InstagramAnnouncementBar.css';
+import './instagramAnnouncementBar.css';
 
 const InstagramIcon = ({ size = 16, className = '' }) => (
   <svg
