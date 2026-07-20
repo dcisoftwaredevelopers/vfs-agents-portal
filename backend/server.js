@@ -24,6 +24,7 @@ const configuredOrigins = (process.env.CLIENT_ORIGIN || '')
 
 const allowedOrigins = [
   ...configuredOrigins,
+  'https://vfs-agents-portal.vercel.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5174',
