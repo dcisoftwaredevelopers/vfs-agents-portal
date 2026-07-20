@@ -31,6 +31,18 @@ const allowedOrigins = [
   'http://127.0.0.1:5174'
 ];
 
+// Matches any Vercel preview URL for this project, e.g.
+// https://vfs-agents-portal-ilpftayfs-vfs-team.vercel.app
+// https://vfs-agents-portal-git-feature-xyz-vfs-team.vercel.app
+const vercelPreviewPattern = /^https:\/\/vfs-agents-portal(-[a-z0-9]+)*\.vercel\.app$/;
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // non-browser requests (curl, server-to-server, health checks)
+  if (allowedOrigins.includes(origin)) return true;
+  if (vercelPreviewPattern.test(origin)) return true;
+  return false;
+};
+
 // 1. Secure HTTP headers with Helmet (configured to allow external Google Scripts, Fonts and WebSockets)
 app.use(
   helmet({
@@ -41,7 +53,9 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         frameSrc: ["'self'", 'https://accounts.google.com'],
-        connectSrc: ["'self'", ...allowedOrigins]
+        // Static allowedOrigins + wildcard for Vercel preview subdomains,
+        // since CSP directives can't evaluate a regex like the CORS check below.
+        connectSrc: ["'self'", ...allowedOrigins, 'https://*.vercel.app']
       }
     }
   })
@@ -54,10 +68,11 @@ app.use(mongoSanitize());
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isOriginAllowed(origin)) {
         callback(null, true);
         return;
       }
+      console.warn(`Blocked by CORS: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -111,11 +126,6 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/subscription', require('./routes/subscription'));
 app.use('/api/referral', require('./routes/referral'));
 
-// Base Route
-app.get('/', (req, res) => {
-  res.send('VFS Global Replica API is running securely...');
-});
-
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -126,10 +136,15 @@ app.use(errorHandler);
 const server = http.createServer(app);
 const io = socketIO(server, {
   cors: {
-    // Previously this was origin: '*' with credential-bearing methods enabled,
-    // which lets any website's browser JS open a socket to this server.
-    // Restrict it to the same allowed origins used for the REST API.
-    origin: allowedOrigins,
+    // Use the same dynamic origin check as the REST API so Socket.IO
+    // connections from Vercel preview deployments aren't blocked either.
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
