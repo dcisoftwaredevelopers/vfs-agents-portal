@@ -1,0 +1,62 @@
+{
+  "menu": {
+    "home": "होम",
+    "find_centre": "केन्द्र खोजें",
+    "agent_portal": "एजेंट पोर्टल",
+    "admin_panel": "एडमिन पैनल",
+    "agent_dashboard": "एजेंट डैशबोर्ड",
+    "admin_dashboard": "एडमिन डैशबोर्ड",
+    "book_appointment": "अपॉइंटमेंट बुक करें",
+    "track_applications": "आवेदन ट्रैक करें",
+    "logout": "लॉगआउट"
+  },
+  "general": {
+    "b2b_portal": "B2B पोर्टल",
+    "super_admin": "सुपर एडमिन पैनल",
+    "status": "स्थिति",
+    "actions": "कार्रवाई",
+    "date": "तिथि"
+  },
+  "agent": {
+    "subscription_status": "पोर्टल सदस्यता स्थिति",
+    "active": "सक्रिय",
+    "expiring_soon": "जल्द समाप्त होने वाला",
+    "expired": "समाप्त",
+    "pending": "लंबित",
+    "days_remaining": "शेष दिन",
+    "expiry_date": "समाप्ति तिथि",
+    "renew_btn": "सदस्यता नवीनीकृत करें",
+    "book_visa": "नया वीज़ा बुक करें",
+    "account_status": "खाता स्थिति",
+    "bookings_tab": "वीज़ा सबमिशन",
+    "billing_tab": "सदस्यता और बिलिंग",
+    "notif_tab": "अधिसूचना केंद्र",
+    "gstin": "जीएसटीआईएन (GSTIN)",
+    "gst_status": "जीएसटी स्थिति",
+    "address": "कार्यालय का पता",
+    "city": "शहर",
+    "state": "राज्य",
+    "country": "देश",
+    "pan": "पैन नंबर"
+  },
+  "admin": {
+    "title": "B2B SaaS एजेंट और सदस्यता प्रबंधन",
+    "filter_month": "महीना फ़िल्टर करें",
+    "mrr": "मासिक आवर्ती राजस्व (MRR)",
+    "active_subs": "सक्रिय सदस्यताओं की संख्या",
+    "renewals": "आगामी 7-दिवसीय नवीनीकरण",
+    "top_agent": "सर्वश्रेष्ठ प्रदर्शन करने वाला एजेंट",
+    "registered_list": "पंजीकृत एजेंसियों की सूची",
+    "search_placeholder": "एजेंसी का नाम, स्वामी, ईमेल, शहर, राज्य या एजेंट आईडी द्वारा खोजें...",
+    "block": "ब्लॉक करें",
+    "unblock": "अनब्लॉक करें",
+    "suspend": "बिलिंग निलंबित करें",
+    "approve": "स्वीकृत करें",
+    "reject": "अस्वीकृत करें",
+    "payments_tab": "भुगतान सत्यापन",
+    "sub_payments_tab": "सदस्यता भुगतान",
+    "notif_tab": "सिस्टम अधिसूचनाएं",
+    "bookings": "बुकिंग्स",
+    "no_bookings": "कोई बुकिंग दर्ज नहीं की गई।"
+  }
+}
