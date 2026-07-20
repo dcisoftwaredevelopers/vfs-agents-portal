@@ -1,3 +1,12 @@
+const dns = require('dns');
+// FIX: Render's network doesn't reliably route outbound IPv6. Node 18+
+// prefers IPv6 by default when a host (e.g. smtp.gmail.com) resolves to
+// both A and AAAA records, which was causing "Connection timeout" /
+// "ENETUNREACH" errors on every outbound SMTP call. Forcing IPv4-first
+// resolution here applies to the whole process (SMTP, any other outbound
+// HTTP/DNS calls), so this must run before anything else does a lookup.
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');

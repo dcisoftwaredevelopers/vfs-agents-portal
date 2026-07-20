@@ -11,6 +11,15 @@ const nodemailer = require('nodemailer');
 // Fix: build ONE pooled transporter, reused for the lifetime of the process.
 // `pool: true` keeps a small set of authenticated connections open and reuses
 // them across sendMail() calls instead of reconnecting every time.
+//
+// FIX (timeout/ENETUNREACH): Render logs showed
+//   "SMTP/OTP Send Error: Connection timeout"
+//   "Failed to send ... reminder email: connect ENETUNREACH 2607:f8b0:..."
+// The IP in that second error is an IPv6 address for smtp.gmail.com.
+// Render's network doesn't reliably route outbound IPv6, so when Node
+// resolves smtp.gmail.com and tries the IPv6 address first, the connection
+// hangs and times out. `family: 4` forces the SMTP connection to use IPv4
+// only, skipping the unreachable IPv6 route entirely.
 let transporter = null;
 
 function getTransporter() {
@@ -26,6 +35,7 @@ function getTransporter() {
       pool: true,
       maxConnections: 5,   // how many parallel SMTP connections to keep open
       maxMessages: 100,    // recycle a connection after this many sends
+      family: 4,           // force IPv4 - avoids Render's unreachable IPv6 route to Gmail
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
