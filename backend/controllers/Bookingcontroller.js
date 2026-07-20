@@ -182,12 +182,21 @@ exports.sendOtp = async (req, res) => {
   const normalizedEmail = email.trim().toLowerCase();
 
   try {
-    let record = await EmailVerification.findOne({ email: normalizedEmail });
-    if (!record) {
-      record = new EmailVerification({ email: normalizedEmail });
-    } else {
-      record.verified = false;
-    }
+    // FIX: atomic findOneAndUpdate+upsert instead of findOne -> new Model -> save.
+    // The old pattern let two concurrent requests for the same email (double-click
+    // on "Save Applicant", or two agents timing out and retrying) both see
+    // "no record found" and both try to INSERT a new document. The second insert
+    // then hit the unique index on `email` and crashed with an unhandled 500
+    // (MongoServerError E11000 duplicate key) — this is exactly the 400/500/400
+    // burst seen in the browser console. Upserting atomically means only one
+    // document is ever created for a given email, no matter how many requests
+    // race for it.
+    let record = await EmailVerification.findOneAndUpdate(
+      { email: normalizedEmail },
+      { $setOnInsert: { email: normalizedEmail } },
+      { new: true, upsert: true }
+    );
+    record.verified = false;
 
     if (record.blockUntil && record.blockUntil > new Date()) {
       const minutesLeft = Math.ceil((record.blockUntil - new Date()) / (60 * 1000));

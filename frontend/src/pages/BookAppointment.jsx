@@ -621,6 +621,15 @@ export default function BookAppointment() {
   };
 
   const handleSaveApplicant = () => {
+    // FIX: without this guard, clicking "Save Applicant" twice quickly (or a
+    // slow network making the button feel unresponsive so the agent clicks
+    // again) fires triggerOtpSend() twice before the first request finishes.
+    // Both requests hit /booking/otp/send for the same email at nearly the
+    // same instant — this is the double-request race that was crashing the
+    // backend with a 500 and then immediately tripping the "too many
+    // attempts" rate limiter (the 400/500/400 burst in the console).
+    if (otpLoading) return;
+
     if (!validateStep2()) return;
     
     // Check if email is new or has changed
@@ -2470,9 +2479,11 @@ export default function BookAppointment() {
                       <button 
                         type="button" 
                         onClick={handleSaveApplicant} 
+                        disabled={otpLoading}
                         className="btn btn-secondary"
+                        style={{ opacity: otpLoading ? 0.6 : 1, cursor: otpLoading ? 'not-allowed' : 'pointer' }}
                       >
-                        {editingIndex !== null ? 'Update Applicant' : 'Save Applicant'}
+                        {otpLoading ? 'Please wait...' : (editingIndex !== null ? 'Update Applicant' : 'Save Applicant')}
                       </button>
                     </div>
                   </div>
