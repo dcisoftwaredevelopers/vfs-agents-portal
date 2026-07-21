@@ -3,9 +3,7 @@ const crypto = require('crypto');
 const Center = require('../models/Center');
 const Slot = require('../models/Slot');
 const Appointment = require('../models/Appointment');
-const Payment = require('../models/Payment');
 const SlotBlock = require('../models/SlotBlock');
-const SlotLock = require('../models/SlotLock');
 const EmergencyClosure = require('../models/EmergencyClosure');
 const EmailVerification = require('../models/EmailVerification');
 const AuditLog = require('../models/AuditLog');
@@ -14,8 +12,8 @@ const queueService = require('../services/queueService');
 const mailService = require('../services/mailService');
 const feeService = require('../services/feeService');
 const socketService = require('../services/socketService');
-const rewardService = require('../services/rewardService');
 const Agent = require('../models/Agent');
+const freeApplicationService = require('../services/freeApplicationService');
 const { DEFAULT_SLOTS, isSlotBlocked, getActiveLocksMap } = require('../services/slotAvailabilityService');
 
 const isTransientMongoError = (err) => {
@@ -663,6 +661,7 @@ exports.lockSlot = async (req, res) => {
       centerId: slot.centerId,
       slotId: slot._id,
       applicantDetails: applicantDetails || [],
+      applicantCount,
       servicesSelected: scaledServicesSelected,
       selectedServicesTotal,
       appointmentFee,
@@ -670,6 +669,7 @@ exports.lockSlot = async (req, res) => {
       bookingDate: new Date(slot.date),
       bookingTime: slot.startTime,
       totalAmount: calculatedTotal,
+      payableAmount: calculatedTotal,
       paymentStatus: 'Pending',
       status: 'LOCKED',
       applicationStatus: 'Processing',
@@ -739,7 +739,7 @@ exports.submitPayment = async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    if (appointment.status !== 'LOCKED') {
+    if (!['LOCKED', 'Payment Rejected'].includes(appointment.status)) {
       return res.status(400).json({ message: 'Lock on this appointment slot has expired or already completed' });
     }
 
@@ -755,81 +755,88 @@ exports.submitPayment = async (req, res) => {
 
     await enforceDailyAmountLimit(userId, appointment.totalAmount, appointment._id);
 
-    const agent = await Agent.findById(userId).select('freeBookingsAvailable').lean();
-    const useFreeBooking = agent?.freeBookingsAvailable > 0;
+    const useFreeApplicationCredit = freeApplicationService.parseBoolean(req.body.useFreeApplicationCredit);
+    const applicantCount = freeApplicationService.getApplicantCount(appointment);
+    appointment.applicantCount = applicantCount;
 
-    if (useFreeBooking) {
-      appointment.status = 'BOOKED';
-      appointment.paymentStatus = 'Paid';
-      await appointment.save();
+    let discountAmount = 0;
+    let payableAmount = appointment.totalAmount;
 
-      await Agent.findByIdAndUpdate(userId, {
-        $inc: { freeBookingsAvailable: -1 }
-      });
-    } else {
-      if (!transactionId) {
-        return res.status(400).json({ message: 'Transaction / Reference ID is required.' });
-      }
-      if (!screenshot) {
-        return res.status(400).json({ message: 'Payment screenshot is required.' });
+    if (useFreeApplicationCredit) {
+      const agent = await Agent.findById(userId).select('freeApplicationsAvailable freeApplicationsUsed');
+      if (!agent || !agent.hasFreeApplicationCredit()) {
+        return res.status(400).json({ message: 'No free application credits are available for this agent.' });
       }
 
-      const existingPayment = await Payment.findOne({ transactionId });
-      if (existingPayment) {
-        return res.status(400).json({ message: 'This Transaction/Reference ID has already been submitted.' });
+      const availableCredits = freeApplicationService.getAvailableFreeApplicationCredits(agent);
+      // Prevent an agent from queuing more pending free-credit requests than real credits.
+      // The final credit consumption still uses an atomic admin-approval guard.
+      await freeApplicationService.assertPendingCreditCapacity(userId, availableCredits, appointment._id);
+
+      const amounts = freeApplicationService.buildFreeApplicationAmounts(appointment);
+      discountAmount = amounts.discountAmount;
+      payableAmount = amounts.payableAmount;
+
+      if (payableAmount > 0) {
+        await freeApplicationService.createPendingPayment({
+          appointment,
+          transactionId,
+          screenshot,
+          amount: payableAmount
+        });
       }
 
       appointment.status = 'Pending Verification';
-      appointment.paymentStatus = 'Pending Verification';
+      appointment.paymentStatus = payableAmount > 0 ? 'Pending Verification' : 'Pending';
+      appointment.freeApplicationRequested = true;
+      appointment.freeApplicationDiscountAmount = discountAmount;
+      appointment.payableAmount = payableAmount;
+      appointment.freeApplicationVerificationStatus = 'PENDING';
+      appointment.freeApplicationRejectionReason = '';
       await appointment.save();
-
-      const payment = new Payment({
-        appointmentId,
-        amount: appointment.totalAmount,
+      await freeApplicationService.extendSlotLock(appointment, userId);
+    } else {
+      await freeApplicationService.createPendingPayment({
+        appointment,
         transactionId,
         screenshot,
-        gatewayResponse: { manualVerification: true },
-        status: 'PENDING_VERIFICATION'
+        amount: appointment.totalAmount
       });
-      await payment.save();
 
-      // Extend SlotLock expiration to 7 days so it doesn't expire during admin review
-      await SlotLock.findOneAndUpdate(
-        { slotId: appointment.slotId, userId },
-        { expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }
-      );
-    }
-
-    if (useFreeBooking) {
-      slot.bookedCount += 1;
-      await slot.save();
-      await lockingService.releaseLock(appointment.slotId.toString(), userId);
-      await rewardService.handleBookingMilestone(userId, null);
+      appointment.status = 'Pending Verification';
+      appointment.paymentStatus = 'Pending Verification';
+      appointment.freeApplicationRequested = false;
+      appointment.freeApplicationDiscountAmount = 0;
+      appointment.payableAmount = appointment.totalAmount;
+      appointment.freeApplicationVerificationStatus = 'NONE';
+      await appointment.save();
+      await freeApplicationService.extendSlotLock(appointment, userId);
     }
 
     await AuditLog.create({
-      action: 'SUBMIT_PAYMENT_PROOF',
+      action: useFreeApplicationCredit ? 'FREE_APPLICATION_REQUESTED' : 'SUBMIT_PAYMENT_PROOF',
       performedBy: userId,
       userId,
       entityType: 'Appointment',
       entityId: appointment._id.toString(),
-      newValue: { appointmentId, amount: appointment.totalAmount, transactionId, useFreeBooking },
+      newValue: {
+        appointmentId,
+        amount: appointment.totalAmount,
+        transactionId,
+        freeApplicationRequested: useFreeApplicationCredit,
+        discountAmount,
+        payableAmount
+      },
       ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
       userAgent: req.headers['user-agent'] || ''
     });
 
     await socketService.broadcastSlotUpdate(slot);
 
-    if (useFreeBooking) {
-      res.json({
-        message: 'Appointment completed using a free booking. Booking counts toward milestone rewards.',
-        appointment
-      });
-      return;
-    }
-
     res.json({
-      message: 'Payment proof submitted successfully. Pending admin verification.',
+      message: useFreeApplicationCredit
+        ? 'Free application credit request submitted. Appointment will be confirmed after admin verification.'
+        : 'Payment proof submitted successfully. Pending admin verification.',
       appointment
     });
   } catch (error) {
@@ -989,8 +996,7 @@ exports.createLegacyBooking = async (req, res) => {
       if (!existingAppt) exists = false;
     }
 
-    const agent = await Agent.findById(req.user._id).select('freeBookingsAvailable').lean();
-    const useFreeBooking = agent?.freeBookingsAvailable > 0;
+    const useFreeApplicationCredit = freeApplicationService.parseBoolean(req.body.useFreeApplicationCredit);
 
     const appointment = new Appointment({
       referenceNumber,
@@ -1004,6 +1010,7 @@ exports.createLegacyBooking = async (req, res) => {
       centerId: slot.centerId,
       slotId: slot._id,
       applicantDetails,
+      applicantCount,
       servicesSelected: scaledServicesSelected,
       selectedServicesTotal,
       appointmentFee,
@@ -1011,33 +1018,80 @@ exports.createLegacyBooking = async (req, res) => {
       bookingDate: new Date(bookingDate),
       bookingTime,
       totalAmount: calculatedTotal,
-      paymentStatus: 'Paid',
-      status: 'BOOKED',
+      payableAmount: calculatedTotal,
+      paymentStatus: 'Pending',
+      status: 'LOCKED',
       applicationStatus: 'Processing'
     });
-    await appointment.save();
 
-    slot.bookedCount += 1;
-    await slot.save();
+    let discountAmount = 0;
+    let payableAmount = calculatedTotal;
 
-    if (useFreeBooking) {
-      await Agent.findByIdAndUpdate(req.user._id, { $inc: { freeBookingsAvailable: -1 } });
+    if (useFreeApplicationCredit) {
+      const agent = await Agent.findById(req.user._id).select('freeApplicationsAvailable freeApplicationsUsed');
+      if (!agent || !agent.hasFreeApplicationCredit()) {
+        throw Object.assign(new Error('No free application credits are available for this agent.'), { statusCode: 400 });
+      }
+
+      const availableCredits = freeApplicationService.getAvailableFreeApplicationCredits(agent);
+      await freeApplicationService.assertPendingCreditCapacity(req.user._id, availableCredits);
+
+      const amounts = freeApplicationService.buildFreeApplicationAmounts(appointment);
+      discountAmount = amounts.discountAmount;
+      payableAmount = amounts.payableAmount;
+
+      appointment.status = 'Pending Verification';
+      appointment.paymentStatus = payableAmount > 0 ? 'Pending Verification' : 'Pending';
+      appointment.freeApplicationRequested = true;
+      appointment.freeApplicationDiscountAmount = discountAmount;
+      appointment.payableAmount = payableAmount;
+      appointment.freeApplicationVerificationStatus = 'PENDING';
+
+      if (payableAmount > 0) {
+        await freeApplicationService.createPendingPayment({
+          appointment,
+          transactionId: req.body.transactionId,
+          screenshot: req.body.screenshot,
+          amount: payableAmount
+        });
+      }
     } else {
-      const payment = new Payment({
-        appointmentId: appointment._id,
-        amount: calculatedTotal,
-        transactionId: `TXN-${Math.floor(10000000 + Math.random() * 90000000)}`,
-        status: 'SUCCESS'
+      await freeApplicationService.createPendingPayment({
+        appointment,
+        transactionId: req.body.transactionId,
+        screenshot: req.body.screenshot,
+        amount: calculatedTotal
       });
-      await payment.save();
+
+      appointment.status = 'Pending Verification';
+      appointment.paymentStatus = 'Pending Verification';
+      appointment.freeApplicationRequested = false;
+      appointment.freeApplicationDiscountAmount = 0;
+      appointment.payableAmount = calculatedTotal;
+      appointment.freeApplicationVerificationStatus = 'NONE';
     }
 
-    await lockingService.releaseLock(slot._id.toString(), req.user._id.toString());
-    await rewardService.handleBookingMilestone(req.user._id, null);
-
-    await lockingService.releaseLock(slot._id.toString(), req.user._id.toString());
+    await appointment.save();
+    await freeApplicationService.extendSlotLock(appointment, req.user._id);
 
     await socketService.broadcastSlotUpdate(slot);
+
+    await AuditLog.create({
+      action: useFreeApplicationCredit ? 'FREE_APPLICATION_REQUESTED' : 'SUBMIT_PAYMENT_PROOF',
+      performedBy: req.user._id,
+      userId: req.user._id,
+      entityType: 'Appointment',
+      entityId: appointment._id.toString(),
+      newValue: {
+        appointmentId: appointment._id,
+        amount: calculatedTotal,
+        freeApplicationRequested: useFreeApplicationCredit,
+        discountAmount,
+        payableAmount
+      },
+      ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || ''
+    });
 
     res.status(201).json(appointment);
   } catch (error) {

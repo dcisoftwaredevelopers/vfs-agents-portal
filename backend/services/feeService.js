@@ -96,4 +96,9 @@ exports.buildCreatePricing = (applicantCount, servicesSelected = []) => {
   return buildPricing(applicantCount, normaliseServices(servicesSelected), DEFAULT_APPOINTMENT_FEE);
 };
 
+exports.calculateFreeApplicationDiscount = (totalAmount, applicantCount) => {
+  const count = Math.max(1, Number(applicantCount) || 1);
+  return Math.round(Number(totalAmount || 0) / count);
+};
+
 exports.getAppointmentFee = getAppointmentFee;

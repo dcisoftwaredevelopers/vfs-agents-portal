@@ -29,9 +29,21 @@ const appointmentSchema = new mongoose.Schema({
     name: { type: String, required: true },
     price: { type: Number, required: true }
   }],
+  applicantCount: { type: Number, default: 1 },
   selectedServicesTotal: { type: Number, default: 0 },
   appointmentFee: { type: Number, default: 0 },
   gstAmount: { type: Number, default: 0 },
+  freeApplicationRequested: { type: Boolean, default: false },
+  freeApplicationDiscountAmount: { type: Number, default: 0 },
+  payableAmount: { type: Number, default: 0 },
+  freeApplicationVerificationStatus: {
+    type: String,
+    enum: ['NONE', 'PENDING', 'APPROVED', 'REJECTED'],
+    default: 'NONE'
+  },
+  freeApplicationVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Agent', default: null },
+  freeApplicationVerifiedAt: { type: Date, default: null },
+  freeApplicationRejectionReason: { type: String, default: '' },
   centerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Center' },
   slotId: { type: mongoose.Schema.Types.ObjectId, ref: 'Slot' },
   bookingDate: { type: Date, required: true },
@@ -62,5 +74,6 @@ appointmentSchema.index({ status: 1, bookingDate: 1 });
 appointmentSchema.index({ userId: 1, createdAt: -1 });
 appointmentSchema.index({ slotId: 1, status: 1 });
 appointmentSchema.index({ paymentStatus: 1, createdAt: -1 });
+appointmentSchema.index({ freeApplicationVerificationStatus: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Appointment', appointmentSchema);

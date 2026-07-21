@@ -140,6 +140,25 @@ const logAuditAction = async (req, action, entityType, entityId, oldValue, newVa
           priority = 'Critical';
           actionUrl = 'paymentVerification';
           break;
+        case 'FREE_APPLICATION_REQUESTED':
+          title = 'Free Application Verification Requested';
+          description = `Agent requested a free application credit for an appointment.`;
+          category = 'Payment';
+          actionUrl = 'freeApplications';
+          break;
+        case 'APPROVE_FREE_APPLICATION':
+          title = 'Free Application Approved';
+          description = `Free application credit verified and appointment confirmed.`;
+          category = 'Payment';
+          actionUrl = 'freeApplications';
+          break;
+        case 'REJECT_FREE_APPLICATION':
+          title = 'Free Application Rejected';
+          description = `Free application credit request was rejected.`;
+          category = 'Payment';
+          priority = 'Warning';
+          actionUrl = 'freeApplications';
+          break;
         case 'APPROVE_SUBSCRIPTION_PAYMENT':
           title = 'Subscription Approved';
           description = `UPI payment verified. Subscription activated.`;
@@ -1914,6 +1933,208 @@ router.get('/blocking-stats', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER'
   }
 });
 
+// GET /free-applications - Retrieve appointments pending free application verification
+router.get('/free-applications', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER', 'SUPERVISOR'), async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || '25', 10)));
+    const status = String(req.query.status || 'PENDING').toUpperCase();
+    const allowedStatuses = ['PENDING', 'APPROVED', 'REJECTED'];
+    const query = {
+      freeApplicationVerificationStatus: allowedStatuses.includes(status) ? status : 'PENDING'
+    };
+
+    const total = await Appointment.countDocuments(query);
+    const appointments = await Appointment.find(query)
+      .populate('userId', 'agentId agencyName ownerName email mobile freeApplicationsAvailable freeApplicationsUsed')
+      .populate('centerId', 'name city')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    const Payment = require('../models/Payment');
+    const payments = await Payment.find({ appointmentId: { $in: appointments.map(a => a._id) } }).sort({ createdAt: -1 }).lean();
+    const paymentByAppointmentId = new Map();
+    payments.forEach((payment) => {
+      const key = String(payment.appointmentId);
+      if (!paymentByAppointmentId.has(key)) paymentByAppointmentId.set(key, payment);
+    });
+
+    res.json({
+      data: appointments.map((appointment) => ({
+        appointment,
+        payment: paymentByAppointmentId.get(String(appointment._id)) || null
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit) || 1
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/free-applications/:id/approve', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER'), async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id).populate('userId', 'agencyName ownerName email mobile');
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (appointment.freeApplicationVerificationStatus !== 'PENDING') {
+      return res.status(400).json({ message: 'This free application request is not pending verification.' });
+    }
+
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findOne({ appointmentId: appointment._id });
+    if (Number(appointment.payableAmount || 0) > 0 && (!payment || payment.status !== 'SUCCESS')) {
+      return res.status(400).json({ message: 'Balance payment must be approved before approving the free application credit.' });
+    }
+
+    const claimedAppointment = await Appointment.findOneAndUpdate(
+      { _id: appointment._id, freeApplicationVerificationStatus: 'PENDING' },
+      {
+        $set: {
+          freeApplicationVerificationStatus: 'APPROVED',
+          freeApplicationVerifiedBy: req.user._id,
+          freeApplicationVerifiedAt: new Date(),
+          freeApplicationRejectionReason: ''
+        }
+      },
+      { new: true }
+    );
+
+    if (!claimedAppointment) {
+      return res.status(400).json({ message: 'This free application request has already been processed.' });
+    }
+
+    const creditUpdatedAgent = await Agent.findOneAndUpdate(
+      {
+        _id: claimedAppointment.userId,
+        $expr: { $gt: ['$freeApplicationsAvailable', '$freeApplicationsUsed'] }
+      },
+      { $inc: { freeApplicationsUsed: 1 } },
+      { new: true }
+    );
+
+    if (!creditUpdatedAgent) {
+      await Appointment.updateOne(
+        { _id: claimedAppointment._id, freeApplicationVerificationStatus: 'APPROVED' },
+        { $set: { freeApplicationVerificationStatus: 'PENDING', freeApplicationVerifiedBy: null, freeApplicationVerifiedAt: null } }
+      );
+      return res.status(400).json({ message: 'Agent has no free application credits remaining. Reject this request or ask the agent to pay the full amount.' });
+    }
+
+    const slot = await Slot.findById(claimedAppointment.slotId);
+    if (!slot) {
+      return res.status(404).json({ message: 'Slot not found' });
+    }
+
+    claimedAppointment.status = 'BOOKED';
+    claimedAppointment.paymentStatus = 'Paid';
+    claimedAppointment.payableAmount = Number(claimedAppointment.payableAmount || 0);
+    await claimedAppointment.save();
+
+    const lockingService = require('../services/lockingService');
+    await lockingService.releaseLock(claimedAppointment.slotId.toString(), claimedAppointment.userId.toString());
+
+    slot.bookedCount += 1;
+    await slot.save();
+
+    await rewardService.handleBookingMilestone(claimedAppointment.userId, null);
+
+    await logAuditAction(req, 'APPROVE_FREE_APPLICATION', 'Appointment', claimedAppointment._id,
+      { freeApplicationVerificationStatus: 'PENDING' },
+      {
+        status: 'BOOKED',
+        paymentStatus: 'Paid',
+        freeApplicationVerificationStatus: 'APPROVED',
+        freeApplicationDiscountAmount: claimedAppointment.freeApplicationDiscountAmount,
+        payableAmount: claimedAppointment.payableAmount
+      }
+    );
+
+    if (global.io) {
+      const SlotLock = require('../models/SlotLock');
+      const activeLocksCount = await SlotLock.countDocuments({
+        slotId: slot._id,
+        expiresAt: { $gt: new Date() }
+      });
+      global.io.emit('slot-update', {
+        slotId: slot._id,
+        bookedCount: slot.bookedCount,
+        lockedCount: activeLocksCount,
+        capacity: slot.capacity
+      });
+    }
+
+    res.json({ message: 'Free application credit approved and appointment confirmed.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/free-applications/:id/reject', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER'), async (req, res) => {
+  const reason = String(req.body?.reason || '').trim();
+  if (!reason) {
+    return res.status(400).json({ message: 'Rejection reason is required.' });
+  }
+
+  try {
+    const appointment = await Appointment.findOneAndUpdate(
+      { _id: req.params.id, freeApplicationVerificationStatus: 'PENDING' },
+      {
+        $set: {
+          status: 'Payment Rejected',
+          paymentStatus: 'Payment Rejected',
+          freeApplicationRequested: false,
+          freeApplicationDiscountAmount: 0,
+          freeApplicationVerificationStatus: 'REJECTED',
+          freeApplicationVerifiedBy: req.user._id,
+          freeApplicationVerifiedAt: new Date(),
+          freeApplicationRejectionReason: reason
+        }
+      },
+      { new: true }
+    );
+
+    if (!appointment) {
+      return res.status(400).json({ message: 'This free application request is not pending verification.' });
+    }
+
+    appointment.payableAmount = appointment.totalAmount;
+    await appointment.save();
+
+    const SlotLock = require('../models/SlotLock');
+    const Payment = require('../models/Payment');
+    await Payment.updateMany(
+      { appointmentId: appointment._id, status: { $in: ['PENDING_VERIFICATION', 'SUCCESS'] } },
+      { $set: { status: 'REJECTED' } }
+    );
+
+    await SlotLock.findOneAndUpdate(
+      { slotId: appointment.slotId, userId: appointment.userId },
+      { expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }
+    );
+
+    await logAuditAction(req, 'REJECT_FREE_APPLICATION', 'Appointment', appointment._id,
+      { freeApplicationVerificationStatus: 'PENDING' },
+      {
+        status: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+        payableAmount: appointment.payableAmount,
+        freeApplicationVerificationStatus: appointment.freeApplicationVerificationStatus,
+        freeApplicationRejectionReason: reason
+      }
+    );
+
+    res.json({ message: 'Free application credit rejected. Agent must pay the full booking amount to confirm this appointment.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // GET /payments-verification - Retrieve appointments pending manual UPI verification
 router.get('/payments-verification', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER', 'SUPERVISOR'), async (req, res) => {
   try {
@@ -1921,7 +2142,7 @@ router.get('/payments-verification', protect, authorize('SUPER_ADMIN', 'CENTER_M
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || '25', 10)));
 
-    const query = { status: 'Pending Verification' };
+    const query = { status: 'Pending Verification', paymentStatus: 'Pending Verification' };
     const total = await Appointment.countDocuments(query);
     const appointments = await Appointment.find(query)
       .populate('userId', 'name email mobile')
@@ -1932,8 +2153,12 @@ router.get('/payments-verification', protect, authorize('SUPER_ADMIN', 'CENTER_M
       .lean();
 
     const Payment = require('../models/Payment');
-    const payments = await Payment.find({ appointmentId: { $in: appointments.map(a => a._id) } }).lean();
-    const paymentByAppointmentId = new Map(payments.map(p => [String(p.appointmentId), p]));
+    const payments = await Payment.find({ appointmentId: { $in: appointments.map(a => a._id) } }).sort({ createdAt: -1 }).lean();
+    const paymentByAppointmentId = new Map();
+    payments.forEach((payment) => {
+      const key = String(payment.appointmentId);
+      if (!paymentByAppointmentId.has(key)) paymentByAppointmentId.set(key, payment);
+    });
 
     const result = appointments.map((appt) => ({
       appointment: appt,
@@ -1968,10 +2193,28 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
 
     // Find and update the associated Payment document
     const Payment = require('../models/Payment');
-    const payment = await Payment.findOne({ appointmentId: appointment._id });
+    const payment = await Payment.findOne({ appointmentId: appointment._id }).sort({ createdAt: -1 });
     if (payment) {
       payment.status = 'SUCCESS';
       await payment.save();
+    }
+
+    if (appointment.freeApplicationVerificationStatus === 'PENDING') {
+      appointment.paymentStatus = 'Paid';
+      appointment.payableAmount = payment ? payment.amount : appointment.payableAmount;
+      await appointment.save();
+
+      await logAuditAction(req, 'VERIFY_PAYMENT_SUCCESS', 'Appointment', appointment._id,
+        { status: 'Pending Verification', paymentStatus: 'Pending Verification' },
+        {
+          status: appointment.status,
+          paymentStatus: appointment.paymentStatus,
+          freeApplicationVerificationStatus: appointment.freeApplicationVerificationStatus,
+          payableAmount: appointment.payableAmount
+        }
+      );
+
+      return res.json({ message: 'Balance payment approved. Free application verification is still pending.' });
     }
 
     // Set appointment status to BOOKED and paymentStatus to Paid

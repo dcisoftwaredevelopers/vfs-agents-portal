@@ -4,7 +4,7 @@ const AgentNotification = require('../models/AgentNotification');
 
 const STAR_REWARD_PER_REFERRAL = 5;
 const STARS_PER_GOLD_COIN = 50;
-const GOLD_COINS_PER_FREE_BOOKING = 1;
+const GOLD_COINS_PER_FREE_APPLICATION = 1;
 const BOOKING_MILESTONE_SIZE = 50;
 const GOLD_PER_BOOKING_MILESTONE = 1;
 
@@ -159,13 +159,13 @@ async function redeemGoldForFreeBooking(agentId, session) {
     throw new Error('Agent not found');
   }
 
-  if ((agent.goldCoins || 0) < GOLD_COINS_PER_FREE_BOOKING) {
+  if ((agent.goldCoins || 0) < GOLD_COINS_PER_FREE_APPLICATION) {
     throw new Error('Not enough Gold Coins to redeem. 1 Gold Coin required.');
   }
 
   const updatedAgent = await Agent.findOneAndUpdate(
-    { _id: agentId, goldCoins: { $gte: GOLD_COINS_PER_FREE_BOOKING } },
-    { $inc: { goldCoins: -GOLD_COINS_PER_FREE_BOOKING, freeBookingsAvailable: 1 } },
+    { _id: agentId, goldCoins: { $gte: GOLD_COINS_PER_FREE_APPLICATION } },
+    { $inc: { goldCoins: -GOLD_COINS_PER_FREE_APPLICATION, freeApplicationsAvailable: 1 } },
     { new: true, ...sessionOptions(session) }
   );
 
@@ -175,12 +175,13 @@ async function redeemGoldForFreeBooking(agentId, session) {
 
   await AgentNotification.create([{
     agentId,
-    title: 'Free booking redeemed',
-    message: 'You redeemed 1 Gold Coin for 1 free booking.',
+    title: 'Free application credit redeemed',
+    message: 'You redeemed 1 Gold Coin for 1 free application credit.',
     type: 'REDEEM_FREE_BOOKING',
     metadata: {
-      goldCoinsRedeemed: GOLD_COINS_PER_FREE_BOOKING,
-      freeBookingsAvailable: updatedAgent.freeBookingsAvailable,
+      goldCoinsRedeemed: GOLD_COINS_PER_FREE_APPLICATION,
+      freeApplicationsAvailable: updatedAgent.freeApplicationsAvailable,
+      freeApplicationsUsed: updatedAgent.freeApplicationsUsed,
       goldCoinsRemaining: updatedAgent.goldCoins,
     },
   }], sessionOptions(session));

@@ -65,7 +65,7 @@ const DEFAULT_APPOINTMENT_FEE = 3000;
 const getFinalAppointmentFee = (countryCode, locationName = '') => {
   const code = (countryCode || '').toUpperCase();
   const name = (locationName || '').toUpperCase();
-  
+
   // Special check for Malta
   if (code === 'MT') {
     if (name.includes('SHORT STAY')) {
@@ -73,12 +73,12 @@ const getFinalAppointmentFee = (countryCode, locationName = '') => {
     }
     return DEFAULT_APPOINTMENT_FEE;
   }
-  
+
   const fee = COUNTRY_APPOINTMENT_FEES[code];
   if (fee !== undefined) {
     return fee;
   }
-  
+
   return DEFAULT_APPOINTMENT_FEE;
 };
 
@@ -395,7 +395,8 @@ const formatClosureMessage = (closure, countries = []) => {
 export default function BookAppointment() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('userInfo'));
-  const hasFreeBookingCredit = (user?.freeBookingsAvailable || 0) > 0;
+  const availableFreeApplications = Math.max(0, (user?.freeApplicationsAvailable || 0) - (user?.freeApplicationsUsed || 0));
+  const hasFreeApplicationCredit = availableFreeApplications > 0;
 
   const isAuthorized = user && (user.status === 'Active' || user.role === 'SUPER_ADMIN');
 
@@ -420,7 +421,7 @@ export default function BookAppointment() {
           const countriesData = await countriesRes.json();
           const centersData = await centersRes.json();
           setCountries(countriesData);
-          
+
           const generated = {};
           Object.entries(centersData).forEach(([letter, list]) => {
             generated[letter] = [];
@@ -476,7 +477,7 @@ export default function BookAppointment() {
 
   const getFilteredCentres = () => {
     if (!destinationCountry) return allCentres;
-    
+
     const filtered = {};
     Object.entries(allCentres).forEach(([letter, centres]) => {
       const match = centres.filter(c => c.countryCode === destinationCountry);
@@ -631,11 +632,11 @@ export default function BookAppointment() {
     if (otpLoading) return;
 
     if (!validateStep2()) return;
-    
+
     // Check if email is new or has changed
     const isNew = editingIndex === null;
     const emailChanged = !isNew && applicantDetails.email.trim().toLowerCase() !== applicantsList[editingIndex].email.trim().toLowerCase();
-    
+
     if (isNew || emailChanged) {
       // Must verify email via OTP
       const email = applicantDetails.email.trim().toLowerCase();
@@ -651,7 +652,7 @@ export default function BookAppointment() {
       const updated = [...applicantsList];
       updated[editingIndex] = updatedApplicant;
       setApplicantsList(updated);
-      
+
       resetFormDraft();
       setShowForm(false);
     }
@@ -702,7 +703,7 @@ export default function BookAppointment() {
   const [selectedServices, setSelectedServices] = useState(['flight_ticket', 'hotel_booking', 'application_form', 'service_charges', 'travel_insurance']); // always selected / mandatory paid services under new rules
   const [pendingApplicant, setPendingApplicant] = useState(null);
   const [emailToVerify, setEmailToVerify] = useState('');
-  
+
   // Date/Time State
   const [bookingDate, setBookingDate] = useState('');
   const [bookingTime, setBookingTime] = useState('');
@@ -741,6 +742,7 @@ export default function BookAppointment() {
   const [paymentBank, setPaymentBank] = useState('');
   const [paymentUpiId, setPaymentUpiId] = useState('');
   const [paymentScreenshot, setPaymentScreenshot] = useState('');
+  const [useFreeApplicationCredit, setUseFreeApplicationCredit] = useState(false);
   const [referenceNumber, setReferenceNumber] = useState('');
 
   // Close nationality dropdown when clicking outside
@@ -760,7 +762,7 @@ export default function BookAppointment() {
   // Socket.IO subscription
   useEffect(() => {
     const socket = io(API_BASE_URL);
-    
+
     socket.on('connect', () => {
       console.log('Socket.IO connected to backend.');
     });
@@ -811,7 +813,7 @@ export default function BookAppointment() {
     setLockExpirationTime(null);
     setTimeLeft(0);
     setBookingTime('');
-    
+
     // Kick user back to Step 3 if they are in premium services, review, or payment step
     if (step > 3 && step < 7) {
       setStep(3);
@@ -860,12 +862,12 @@ export default function BookAppointment() {
 
   const handleOtpVerifiedSuccess = (verifiedEmail, currentPendingApplicant = pendingApplicant) => {
     const applicantToCommit = currentPendingApplicant || applicantDetails;
-    const updatedApplicant = { 
-      ...stripPassportPreview(applicantToCommit), 
+    const updatedApplicant = {
+      ...stripPassportPreview(applicantToCommit),
       email: verifiedEmail,
-      emailVerified: true 
+      emailVerified: true
     };
-    
+
     if (editingIndex !== null) {
       const updated = [...applicantsList];
       updated[editingIndex] = updatedApplicant;
@@ -873,7 +875,7 @@ export default function BookAppointment() {
     } else {
       setApplicantsList([...applicantsList, updatedApplicant]);
     }
-    
+
     setPendingApplicant(null);
     setEmailToVerify('');
     setShowOtpVerification(false);
@@ -1018,7 +1020,7 @@ export default function BookAppointment() {
         c.countryCode === destinationCountry &&
         normalizedLocation.includes((c.city || '').toLowerCase())
       );
-      
+
       if (!matchedCenter) {
         throw new Error("No visa application center found for the selected country and city.");
       }
@@ -1075,6 +1077,11 @@ export default function BookAppointment() {
 
   // Grand total
   const totalPrice = appointmentFee + servicesTotal;
+  const estimatedFreeApplicationDiscount = useFreeApplicationCredit
+    ? Math.min(totalPrice, Math.round(totalPrice / applicantCount))
+    : 0;
+  const estimatedPayableAmount = Math.max(0, totalPrice - estimatedFreeApplicationDiscount);
+  const requiresPaymentProof = !useFreeApplicationCredit || estimatedPayableAmount > 0;
 
   // Form Handlers
   const handleApplicantChange = (e) => {
@@ -1231,7 +1238,7 @@ export default function BookAppointment() {
 
   const validateStep6 = () => {
     const tempErrors = {};
-    if (!hasFreeBookingCredit) {
+    if (requiresPaymentProof) {
       if (!paymentUpiId || paymentUpiId.trim().length < 6) {
         tempErrors.paymentUpiId = 'Please enter a valid UPI Transaction / Reference ID (minimum 6 characters)';
       }
@@ -1247,7 +1254,7 @@ export default function BookAppointment() {
   const handleLockSlot = async () => {
     setLoading(true);
     setApiError('');
-    
+
     try {
       const selectedSlotObj = availableSlots.find(s => getSlotTime(s) === bookingTime);
       if (!selectedSlotObj) {
@@ -1394,7 +1401,8 @@ export default function BookAppointment() {
       // Use FormData to send file as multipart/form-data
       const formData = new FormData();
       formData.append('appointmentId', lockedAppointmentId);
-      if (!hasFreeBookingCredit) {
+      formData.append('useFreeApplicationCredit', useFreeApplicationCredit ? 'true' : 'false');
+      if (requiresPaymentProof) {
         formData.append('transactionId', paymentUpiId);
         formData.append('screenshot', paymentScreenshot); // Actual File object
       }
@@ -1418,19 +1426,11 @@ export default function BookAppointment() {
 
       setConfirmationData(data.appointment);
 
-      if (hasFreeBookingCredit) {
-        const updatedUser = {
-          ...user,
-          freeBookingsAvailable: Math.max((user.freeBookingsAvailable || 0) - 1, 0)
-        };
-        localStorage.setItem('userInfo', JSON.stringify(updatedUser));
-      }
-      
       // Stop countdown timer
       setLockExpirationTime(null);
       setTimeLeft(0);
       setLockedAppointmentId(null);
-      
+
       setShowPaymentSuccessAlert(true);
     } catch (err) {
       if (err.message.includes('fetch') || err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('network')) {
@@ -1452,12 +1452,12 @@ export default function BookAppointment() {
           applicationStatus: 'Submitted'
         };
         setConfirmationData(mockConfirmation);
-        
+
         // Stop countdown timer
         setLockExpirationTime(null);
         setTimeLeft(0);
         setLockedAppointmentId(null);
-        
+
         setShowPaymentSuccessAlert(true);
         return;
       }
@@ -1494,7 +1494,7 @@ export default function BookAppointment() {
               {isPending ? 'Payment Proof Submitted' : 'Appointment Confirmed'}
             </h2>
             <p style={{ color: '#666', fontSize: '15px', lineHeight: '1.6', marginTop: '10px' }}>
-              {isPending 
+              {isPending
                 ? 'Your payment proof has been submitted successfully. Appointment confirmation will be sent after payment verification.'
                 : `Your biometric appointment for VFS ${countries.find(c => c.code === destinationCountry)?.name || 'UK'} Visa Centre ${(Array.isArray(confirmationData.applicantDetails) ? confirmationData.applicantDetails[0] : confirmationData.applicantDetails).location.split(',')[0]} is successfully booked.`
               }
@@ -1643,7 +1643,7 @@ export default function BookAppointment() {
 
   return (
     <div className="container" style={{ maxWidth: '850px' }}>
-      
+
       {/* Step Indicator Header */}
       <div className="wizard-steps">
         <div className={`step-node ${step >= 1 ? 'completed' : ''} ${step === 1 ? 'active' : ''}`}>1<span className="step-label">Visa Info</span></div>
@@ -1677,7 +1677,7 @@ export default function BookAppointment() {
       )}
 
       <div className="glass-card-premium" style={{ marginTop: '35px', padding: '30px', border: '1px solid rgba(12, 35, 64, 0.08)' }}>
-        
+
         {apiError && (
           <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '12px', fontSize: '14px', borderRadius: '4px', marginBottom: '20px' }}>
             {apiError}
@@ -1694,128 +1694,128 @@ export default function BookAppointment() {
                 <h2 style={{ color: '#0c2340', fontWeight: 'bold', fontSize: '20px', marginBottom: '20px' }}>
                   Step 1: Visa Details & Location
                 </h2>
-            
-            {destinationCountry ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#eff6ff', borderLeft: '4px solid #2563eb', padding: '12px 18px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px' }}>
-                <div>
-                  <strong>Destination Country:</strong> {(() => {
-                    const country = countries.find(c => c.code === destinationCountry);
-                    return country ? `${country.flag} ${country.name}` : destinationCountry;
-                  })()}
-                </div>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setDestinationCountry('');
-                    localStorage.removeItem('selectedDestinationCountry');
-                    setLocation('');
-                    setActiveEmergencyClosure(null);
-                    setApiError('');
-                  }}
-                  style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', fontWeight: 'bold' }}
-                >
-                  Change Country
-                </button>
-              </div>
-            ) : (
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label className="form-label">Destination Country</label>
-                <SearchableDropdown
-                  options={countries}
-                  placeholder="-- Search & Select Destination Country --"
-                  value={destinationCountry}
-                  onChange={(code) => {
-                    setDestinationCountry(code);
-                    localStorage.setItem('selectedDestinationCountry', code);
-                    setLocation(''); // Clear location when country changes
-                  }}
-                />
-              </div>
-            )}
 
-            {activeEmergencyClosure && (
-              <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #dc2626', color: '#991b1b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px', lineHeight: 1.5 }}>
-                <strong>Emergency Center Closure:</strong> {emergencyClosureMessage}
-              </div>
-            )}
+                {destinationCountry ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#eff6ff', borderLeft: '4px solid #2563eb', padding: '12px 18px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px' }}>
+                    <div>
+                      <strong>Destination Country:</strong> {(() => {
+                        const country = countries.find(c => c.code === destinationCountry);
+                        return country ? `${country.flag} ${country.name}` : destinationCountry;
+                      })()}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDestinationCountry('');
+                        localStorage.removeItem('selectedDestinationCountry');
+                        setLocation('');
+                        setActiveEmergencyClosure(null);
+                        setApiError('');
+                      }}
+                      style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', fontWeight: 'bold' }}
+                    >
+                      Change Country
+                    </button>
+                  </div>
+                ) : (
+                  <div className="form-group" style={{ marginBottom: '20px' }}>
+                    <label className="form-label">Destination Country</label>
+                    <SearchableDropdown
+                      options={countries}
+                      placeholder="-- Search & Select Destination Country --"
+                      value={destinationCountry}
+                      onChange={(code) => {
+                        setDestinationCountry(code);
+                        localStorage.setItem('selectedDestinationCountry', code);
+                        setLocation(''); // Clear location when country changes
+                      }}
+                    />
+                  </div>
+                )}
 
-            {errors.emergencyClosure && !activeEmergencyClosure && (
-              <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #dc2626', color: '#991b1b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px', lineHeight: 1.5 }}>
-                {errors.emergencyClosure}
-              </div>
-            )}
+                {activeEmergencyClosure && (
+                  <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #dc2626', color: '#991b1b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px', lineHeight: 1.5 }}>
+                    <strong>Emergency Center Closure:</strong> {emergencyClosureMessage}
+                  </div>
+                )}
 
-            <div className="form-group">
-              <label className="form-label">Application Location</label>
-              <select 
-                className="form-control" 
-                style={{ borderColor: errors.location ? '#ef4444' : '#cbd5e1' }}
-                value={location}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setLocation(val);
-                  setApiError('');
-                  if (errors.location || errors.emergencyClosure) {
-                    setErrors({ ...errors, location: '', emergencyClosure: '' });
-                  }
-                  
-                  // Auto-detect destinationCountry code
-                  let foundCode = '';
-                  for (const letter in allCentres) {
-                    const found = allCentres[letter].find(c => c.label === val);
-                    if (found) {
-                      foundCode = found.countryCode;
-                      break;
-                    }
-                  }
-                  if (foundCode) {
-                    setDestinationCountry(foundCode);
-                    localStorage.setItem('selectedDestinationCountry', foundCode);
-                  }
-                }}
-                required
-              >
-                <option value="">-- Select Application Location --</option>
-                {Object.entries(getFilteredCentres()).map(([letter, centres]) => (
-                  <optgroup key={letter} label={letter}>
-                    {centres.map((centre, idx) => (
-                      <option key={`${letter}-${idx}`} value={centre.label}>
-                        {centre.label}
-                      </option>
+                {errors.emergencyClosure && !activeEmergencyClosure && (
+                  <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #dc2626', color: '#991b1b', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px', lineHeight: 1.5 }}>
+                    {errors.emergencyClosure}
+                  </div>
+                )}
+
+                <div className="form-group">
+                  <label className="form-label">Application Location</label>
+                  <select
+                    className="form-control"
+                    style={{ borderColor: errors.location ? '#ef4444' : '#cbd5e1' }}
+                    value={location}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLocation(val);
+                      setApiError('');
+                      if (errors.location || errors.emergencyClosure) {
+                        setErrors({ ...errors, location: '', emergencyClosure: '' });
+                      }
+
+                      // Auto-detect destinationCountry code
+                      let foundCode = '';
+                      for (const letter in allCentres) {
+                        const found = allCentres[letter].find(c => c.label === val);
+                        if (found) {
+                          foundCode = found.countryCode;
+                          break;
+                        }
+                      }
+                      if (foundCode) {
+                        setDestinationCountry(foundCode);
+                        localStorage.setItem('selectedDestinationCountry', foundCode);
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">-- Select Application Location --</option>
+                    {Object.entries(getFilteredCentres()).map(([letter, centres]) => (
+                      <optgroup key={letter} label={letter}>
+                        {centres.map((centre, idx) => (
+                          <option key={`${letter}-${idx}`} value={centre.label}>
+                            {centre.label}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
-                  </optgroup>
-                ))}
-              </select>
-              {errors.location && (
-                <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.location}</span>
-              )}
-            </div>
-            <div className="form-group">
-              <label className="form-label">Visa Category</label>
-              <select 
-                className="form-control" 
-                style={{ borderColor: errors.visaCategory ? '#ef4444' : '#cbd5e1' }}
-                value={visaCategory}
-                onChange={(e) => {
-                  setVisaCategory(e.target.value);
-                  if (errors.visaCategory) setErrors({ ...errors, visaCategory: '' });
-                }}
-                required
-              >
-                <option value="">-- Select Visa Category --</option>
-                <option value="Tourist / Short-Term Visitor Visa">Tourist / Short-Term Visitor Visa</option>
-                <option value="Business Visa">Business Visa</option>
-                <option value="Study / Student Visa">Study / Student Visa</option>
-                <option value="Work / Employment Visa">Work / Employment Visa</option>
-                <option value="Transit Visa">Transit Visa</option>
-                <option value="Family / Spouse / Dependent Visa">Family / Spouse / Dependent Visa</option>
-                <option value="Medical Treatment Visa">Medical Treatment Visa</option>
-                <option value="Official / Diplomatic Visa">Official / Diplomatic Visa</option>
-              </select>
-              {errors.visaCategory && (
-                <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.visaCategory}</span>
-              )}
-            </div>
+                  </select>
+                  {errors.location && (
+                    <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.location}</span>
+                  )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Visa Category</label>
+                  <select
+                    className="form-control"
+                    style={{ borderColor: errors.visaCategory ? '#ef4444' : '#cbd5e1' }}
+                    value={visaCategory}
+                    onChange={(e) => {
+                      setVisaCategory(e.target.value);
+                      if (errors.visaCategory) setErrors({ ...errors, visaCategory: '' });
+                    }}
+                    required
+                  >
+                    <option value="">-- Select Visa Category --</option>
+                    <option value="Tourist / Short-Term Visitor Visa">Tourist / Short-Term Visitor Visa</option>
+                    <option value="Business Visa">Business Visa</option>
+                    <option value="Study / Student Visa">Study / Student Visa</option>
+                    <option value="Work / Employment Visa">Work / Employment Visa</option>
+                    <option value="Transit Visa">Transit Visa</option>
+                    <option value="Family / Spouse / Dependent Visa">Family / Spouse / Dependent Visa</option>
+                    <option value="Medical Treatment Visa">Medical Treatment Visa</option>
+                    <option value="Official / Diplomatic Visa">Official / Diplomatic Visa</option>
+                  </select>
+                  {errors.visaCategory && (
+                    <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.visaCategory}</span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px' }}>
                   <button
                     onClick={nextStep}
@@ -1859,8 +1859,8 @@ export default function BookAppointment() {
 
                 <div className="form-group" style={{ marginBottom: '20px', textAlign: 'center' }}>
                   <label className="form-label" style={{ display: 'block', fontWeight: '600', marginBottom: '8px' }}>Enter 6-Digit OTP</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     maxLength="6"
                     className="form-control"
                     style={{ textAlign: 'center', letterSpacing: '8px', fontSize: '22px', fontWeight: 'bold', maxWidth: '240px', margin: '0 auto', borderColor: otpError ? '#ef4444' : '#cbd5e1' }}
@@ -1885,21 +1885,21 @@ export default function BookAppointment() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
-                  <button 
+                  <button
                     onClick={() => {
                       setShowOtpVerification(false);
                       setOtpCodeInput('');
                       setOtpError('');
                       setOtpSuccess('');
-                    }} 
+                    }}
                     className="btn btn-outline"
                     style={{ padding: '8px 24px' }}
                     disabled={otpLoading}
                   >
                     Cancel
                   </button>
-                  <button 
-                    onClick={handleVerifyOtp} 
+                  <button
+                    onClick={handleVerifyOtp}
                     className="btn btn-secondary"
                     style={{ padding: '8px 24px', display: 'flex', alignItems: 'center', gap: '6px' }}
                     disabled={otpLoading || (otpTimer === 0 && !otpCodeInput)}
@@ -1910,16 +1910,16 @@ export default function BookAppointment() {
 
                 <div style={{ textAlign: 'center', marginTop: '25px', fontSize: '14px' }}>
                   <span style={{ color: '#666' }}>Didn't receive the OTP? </span>
-                  <button 
-                    onClick={triggerOtpSend} 
-                    style={{ 
-                      background: 'none', 
-                      border: 'none', 
-                      color: (resendCooldown === 0 && !otpLoading) ? '#e86020' : '#cbd5e1', 
-                      textDecoration: (resendCooldown === 0 && !otpLoading) ? 'underline' : 'none', 
-                      cursor: (resendCooldown === 0 && !otpLoading) ? 'pointer' : 'not-allowed', 
+                  <button
+                    onClick={triggerOtpSend}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: (resendCooldown === 0 && !otpLoading) ? '#e86020' : '#cbd5e1',
+                      textDecoration: (resendCooldown === 0 && !otpLoading) ? 'underline' : 'none',
+                      cursor: (resendCooldown === 0 && !otpLoading) ? 'pointer' : 'not-allowed',
                       fontWeight: 'bold',
-                      padding: 0 
+                      padding: 0
                     }}
                     disabled={resendCooldown > 0 || otpLoading}
                   >
@@ -1991,15 +1991,15 @@ export default function BookAppointment() {
                                 </span>
                               </td>
                               <td style={{ padding: '12px 18px', textAlign: 'right' }}>
-                                <button 
-                                  onClick={() => handleEditApplicant(idx)} 
+                                <button
+                                  onClick={() => handleEditApplicant(idx)}
                                   style={{ background: 'none', border: 'none', color: '#e86020', marginRight: '15px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                   title="Edit Applicant"
                                 >
                                   <Edit size={16} /> Edit
                                 </button>
-                                <button 
-                                  onClick={() => handleDeleteApplicant(idx)} 
+                                <button
+                                  onClick={() => handleDeleteApplicant(idx)}
                                   style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                   title="Delete Applicant"
                                 >
@@ -2013,9 +2013,9 @@ export default function BookAppointment() {
                     </div>
                     {!showForm && (
                       <div style={{ padding: '12px 18px', backgroundColor: '#f8f9fa', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-start' }}>
-                        <button 
+                        <button
                           onClick={handleAddNewApplicant}
-                          className="btn btn-outline" 
+                          className="btn btn-outline"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '6px 12px' }}
                         >
                           <Plus size={16} /> Add New Applicant
@@ -2041,9 +2041,9 @@ export default function BookAppointment() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                       <div className="form-group">
                         <label className="form-label">First Name</label>
-                        <input 
-                          type="text" 
-                          name="firstName" 
+                        <input
+                          type="text"
+                          name="firstName"
                           className="form-control"
                           style={{ borderColor: errors.firstName ? '#ef4444' : '#cbd5e1' }}
                           value={applicantDetails.firstName}
@@ -2055,9 +2055,9 @@ export default function BookAppointment() {
                       </div>
                       <div className="form-group">
                         <label className="form-label">Last Name</label>
-                        <input 
-                          type="text" 
-                          name="lastName" 
+                        <input
+                          type="text"
+                          name="lastName"
                           className="form-control"
                           style={{ borderColor: errors.lastName ? '#ef4444' : '#cbd5e1' }}
                           value={applicantDetails.lastName}
@@ -2069,9 +2069,9 @@ export default function BookAppointment() {
                       </div>
                       <div className="form-group">
                         <label className="form-label">Passport Number</label>
-                        <input 
-                          type="text" 
-                          name="passportNumber" 
+                        <input
+                          type="text"
+                          name="passportNumber"
                           className="form-control"
                           style={{ borderColor: errors.passportNumber ? '#ef4444' : '#cbd5e1' }}
                           placeholder="e.g. Z1234567"
@@ -2128,8 +2128,8 @@ export default function BookAppointment() {
                       </div>
                       <div className="form-group">
                         <label className="form-label">Gender</label>
-                        <select 
-                          name="gender" 
+                        <select
+                          name="gender"
                           className="form-control"
                           style={{ borderColor: errors.gender ? '#ef4444' : '#cbd5e1' }}
                           value={applicantDetails.gender}
@@ -2146,12 +2146,12 @@ export default function BookAppointment() {
                       </div>
                       <div className="form-group" id="nationality-dropdown-container" style={{ position: 'relative' }}>
                         <label className="form-label">Current Nationality</label>
-                        <div 
+                        <div
                           className="form-control"
-                          style={{ 
-                            display: 'flex', 
-                            justifyContent: 'space-between', 
-                            alignItems: 'center', 
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
                             cursor: 'pointer',
                             borderColor: errors.nationality ? '#ef4444' : '#cbd5e1',
                             backgroundColor: '#fff',
@@ -2197,7 +2197,7 @@ export default function BookAppointment() {
                             flexDirection: 'column',
                             gap: '6px'
                           }}>
-                            <input 
+                            <input
                               type="text"
                               className="form-control"
                               style={{
@@ -2218,10 +2218,10 @@ export default function BookAppointment() {
                               display: 'flex',
                               flexDirection: 'column'
                             }}>
-                              {countries.filter(c => 
+                              {countries.filter(c =>
                                 c.name.toLowerCase().includes(nationalitySearchQuery.toLowerCase())
                               ).length > 0 ? (
-                                countries.filter(c => 
+                                countries.filter(c =>
                                   c.name.toLowerCase().includes(nationalitySearchQuery.toLowerCase())
                                 ).map(c => (
                                   <div
@@ -2274,9 +2274,9 @@ export default function BookAppointment() {
                       </div>
                       <div className="form-group">
                         <label className="form-label">Email Address</label>
-                        <input 
-                          type="email" 
-                          name="email" 
+                        <input
+                          type="email"
+                          name="email"
                           className="form-control"
                           style={{ borderColor: errors.email ? '#ef4444' : '#cbd5e1' }}
                           value={applicantDetails.email}
@@ -2289,8 +2289,8 @@ export default function BookAppointment() {
                       <div className="form-group">
                         <label className="form-label">Contact Number</label>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                          <select 
-                            name="phoneCountryCode" 
+                          <select
+                            name="phoneCountryCode"
                             className="form-control"
                             style={{ width: '120px', flexShrink: 0, padding: '10px' }}
                             value={applicantDetails.phoneCountryCode}
@@ -2302,9 +2302,9 @@ export default function BookAppointment() {
                               </option>
                             ))}
                           </select>
-                          <input 
-                            type="tel" 
-                            name="phone" 
+                          <input
+                            type="tel"
+                            name="phone"
                             className="form-control"
                             style={{ flex: 1, borderColor: errors.phone ? '#ef4444' : '#cbd5e1' }}
                             placeholder="e.g. 9876543210"
@@ -2323,7 +2323,7 @@ export default function BookAppointment() {
                       <label className="form-label" style={{ fontWeight: 'bold', fontSize: '15px', color: '#0c2340', marginBottom: '8px', display: 'block' }}>
                         Upload Official Passport <span style={{ color: '#ef4444' }}>*</span>
                       </label>
-                      
+
                       {/* Warning Alert */}
                       <div style={{ backgroundColor: '#fffbeb', borderLeft: '4px solid #f59e0b', color: '#78350f', padding: '12px 16px', borderRadius: '4px', marginBottom: '20px', fontSize: '13px', lineHeight: '1.5' }}>
                         <strong style={{ display: 'block', marginBottom: '4px' }}>⚠️ Passport Document Requirements:</strong>
@@ -2332,8 +2332,8 @@ export default function BookAppointment() {
 
                       <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                         {/* Drag and Drop Zone */}
-                        <div 
-                          style={{ 
+                        <div
+                          style={{
                             flex: '1 1 350px',
                             border: errors.passportDocument ? '2px dashed #ef4444' : '2px dashed #cbd5e1',
                             borderRadius: '6px',
@@ -2364,10 +2364,10 @@ export default function BookAppointment() {
                           }}
                           onClick={() => document.getElementById('passport-document-input').click()}
                         >
-                          <input 
-                            type="file" 
-                            id="passport-document-input" 
-                            accept=".jpg,.jpeg,.png,.pdf" 
+                          <input
+                            type="file"
+                            id="passport-document-input"
+                            accept=".jpg,.jpeg,.png,.pdf"
                             style={{ display: 'none' }}
                             onChange={(e) => {
                               if (e.target.files && e.target.files[0]) {
@@ -2409,13 +2409,13 @@ export default function BookAppointment() {
                                     <span style={{ fontSize: '10px', fontWeight: 'bold', wordBreak: 'break-all', textAlign: 'center' }}>PDF Document</span>
                                   </div>
                                 ) : (
-                                  <img 
-                                    src={applicantDetails.passportDocumentPreview} 
-                                    alt="Preview" 
+                                  <img
+                                    src={applicantDetails.passportDocumentPreview}
+                                    alt="Preview"
                                     style={{ width: '120px', height: '150px', objectFit: 'cover', border: '2px solid #16a34a', borderRadius: '4px' }}
                                   />
                                 )}
-                                <button 
+                                <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -2424,17 +2424,17 @@ export default function BookAppointment() {
                                       return { ...prev, passportDocument: '', passportDocumentPreview: '' };
                                     });
                                   }}
-                                  style={{ 
-                                    position: 'absolute', 
-                                    top: '-8px', 
-                                    right: '-8px', 
-                                    backgroundColor: '#ef4444', 
-                                    color: '#fff', 
-                                    border: 'none', 
-                                    borderRadius: '50%', 
-                                    width: '20px', 
-                                    height: '20px', 
-                                    cursor: 'pointer', 
+                                  style={{
+                                    position: 'absolute',
+                                    top: '-8px',
+                                    right: '-8px',
+                                    backgroundColor: '#ef4444',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '20px',
+                                    height: '20px',
+                                    cursor: 'pointer',
                                     fontSize: '12px',
                                     fontWeight: 'bold',
                                     display: 'flex',
@@ -2465,20 +2465,20 @@ export default function BookAppointment() {
 
                     <div style={{ display: 'flex', gap: '15px', marginTop: '25px', justifyContent: 'flex-end' }}>
                       {applicantsList.length > 0 && (
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={() => {
                             resetFormDraft();
                             setShowForm(false);
-                          }} 
+                          }}
                           className="btn btn-outline"
                         >
                           Cancel
                         </button>
                       )}
-                      <button 
-                        type="button" 
-                        onClick={handleSaveApplicant} 
+                      <button
+                        type="button"
+                        onClick={handleSaveApplicant}
                         disabled={otpLoading}
                         className="btn btn-secondary"
                         style={{ opacity: otpLoading ? 0.6 : 1, cursor: otpLoading ? 'not-allowed' : 'pointer' }}
@@ -2498,8 +2498,8 @@ export default function BookAppointment() {
               </>
             )}
           </div>
-        )} 
-                     {/* STEP 3: Time Slot Booking */}
+        )}
+        {/* STEP 3: Time Slot Booking */}
         {step === 3 && (
           <div>
             <h2 style={{ color: '#0c2340', fontWeight: 'bold', fontSize: '20px', marginBottom: '20px' }}>
@@ -2507,8 +2507,8 @@ export default function BookAppointment() {
             </h2>
             <div className="form-group">
               <label className="form-label">Choose Date</label>
-              <input 
-                type="date" 
+              <input
+                type="date"
                 className="form-control"
                 style={{ borderColor: errors.bookingDate ? '#ef4444' : '#cbd5e1' }}
                 min={getMinDate()}
@@ -2527,7 +2527,7 @@ export default function BookAppointment() {
 
             {bookingDate && !errors.bookingDate && (
               <div style={{ marginTop: '25px' }}>
-                
+
                 {/* Time Range Filter Tabs */}
                 <label className="form-label" style={{ marginBottom: '10px' }}>Filter Time Range</label>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
@@ -2574,13 +2574,13 @@ export default function BookAppointment() {
                           const blocked = isBlockedSlot(slot);
                           const isFull = blocked || availableCount <= 0;
                           const isSelected = bookingTime === slotTime;
-                          
+
                           // Style based on availability
                           let bgColor = '#10b981'; // Green (Available)
                           let textColor = '#fff';
                           let border = '2px solid transparent';
                           let cursorStyle = 'pointer';
-                          
+
                           if (blocked) {
                             bgColor = '#ef4444'; // Red (Blocked by admin)
                             textColor = '#fff';
@@ -2593,9 +2593,9 @@ export default function BookAppointment() {
                             bgColor = '#0c2340'; // Selected dark blue
                             border = '2px solid #e86020'; // Selected gold border
                           }
-                          
+
                           return (
-                            <div 
+                            <div
                               key={slot._id || slotTime}
                               style={{
                                 backgroundColor: bgColor,
@@ -2627,20 +2627,20 @@ export default function BookAppointment() {
                       {availableSlots
                         .filter(slot => {
                           const hour = parseInt(getSlotTime(slot).split(':')[0], 10);
-                        if (slotTimeFilter === 'Morning') return hour < 12;
-                        if (slotTimeFilter === 'Afternoon') return hour >= 12 && hour < 16;
-                        if (slotTimeFilter === 'Evening') return hour >= 16;
-                        return true;
-                      }).length === 0 && (
-                        <div style={{ gridColumn: '1 / -1', padding: '15px', color: '#64748b', textAlign: 'center', fontSize: '14px' }}>
-                          No slots available for this period.
-                        </div>
-                      )}
+                          if (slotTimeFilter === 'Morning') return hour < 12;
+                          if (slotTimeFilter === 'Afternoon') return hour >= 12 && hour < 16;
+                          if (slotTimeFilter === 'Evening') return hour >= 16;
+                          return true;
+                        }).length === 0 && (
+                          <div style={{ gridColumn: '1 / -1', padding: '15px', color: '#64748b', textAlign: 'center', fontSize: '14px' }}>
+                            No slots available for this period.
+                          </div>
+                        )}
                     </div>
                     {errors.bookingTime && (
                       <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '8px', display: 'block' }}>{errors.bookingTime}</span>
                     )}
-                    
+
                     {/* Color Indicators Legend */}
                     <div style={{ display: 'flex', gap: '15px', marginTop: '15px', fontSize: '13px', color: '#666' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -2691,8 +2691,8 @@ export default function BookAppointment() {
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '15px' }}>
                 {MANDATORY_DOCS.map(s => (
-                  <div 
-                    key={s.id} 
+                  <div
+                    key={s.id}
                     style={{
                       border: '2px solid #cbd5e1',
                       borderRadius: '6px',
@@ -2744,8 +2744,8 @@ export default function BookAppointment() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '15px' }}>
                 {OPTIONAL_SERVICES.map(s => {
                   return (
-                    <div 
-                      key={s.id} 
+                    <div
+                      key={s.id}
                       style={{
                         border: '2px solid #0c2340',
                         borderRadius: '6px',
@@ -2865,8 +2865,8 @@ export default function BookAppointment() {
                 <h3 style={{ fontSize: '15px', color: '#0c2340', fontWeight: 'bold', margin: 0 }}>
                   Visa Details & Location
                 </h3>
-                <button 
-                  onClick={() => setStep(1)} 
+                <button
+                  onClick={() => setStep(1)}
                   style={{ background: 'none', border: 'none', color: '#e86020', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                   <Edit size={14} /> Edit
@@ -2885,8 +2885,8 @@ export default function BookAppointment() {
                 <h3 style={{ fontSize: '15px', color: '#0c2340', fontWeight: 'bold', margin: 0 }}>
                   Applicant Details ({applicantsList.length})
                 </h3>
-                <button 
-                  onClick={() => setStep(2)} 
+                <button
+                  onClick={() => setStep(2)}
                   style={{ background: 'none', border: 'none', color: '#e86020', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                   <Edit size={14} /> Edit
@@ -2914,8 +2914,8 @@ export default function BookAppointment() {
                 <h3 style={{ fontSize: '15px', color: '#0c2340', fontWeight: 'bold', margin: 0 }}>
                   Appointment Slot
                 </h3>
-                <button 
-                  onClick={() => setStep(3)} 
+                <button
+                  onClick={() => setStep(3)}
                   style={{ background: 'none', border: 'none', color: '#e86020', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                   <Edit size={14} /> Edit
@@ -2933,8 +2933,8 @@ export default function BookAppointment() {
                 <h3 style={{ fontSize: '15px', color: '#0c2340', fontWeight: 'bold', margin: 0 }}>
                   Mandatory Documents & Pricing Summary
                 </h3>
-                <button 
-                  onClick={() => setStep(4)} 
+                <button
+                  onClick={() => setStep(4)}
                   style={{ background: 'none', border: 'none', color: '#e86020', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
                   <Edit size={14} /> Edit
@@ -3002,7 +3002,7 @@ export default function BookAppointment() {
                   <span>Travel Insurance:</span>
                   <strong>INR {travelInsurancePrice.toLocaleString('en-IN')}</strong>
                 </div>
-                
+
                 <div style={{ borderTop: '2px solid #0c2340', paddingTop: '10px', marginTop: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '16px' }}>
                   <strong>Grand Total:</strong>
                   <strong style={{ color: '#e67e22' }}>INR {totalPrice.toLocaleString('en-IN')}</strong>
@@ -3029,7 +3029,12 @@ export default function BookAppointment() {
                 <h3 style={{ fontSize: '14px', color: '#64748b', fontWeight: 'bold', marginBottom: '4px' }}>
                   Amount to Pay
                 </h3>
-                <strong style={{ color: '#e67e22', fontSize: '20px', fontWeight: 'bold' }}>INR {totalPrice.toLocaleString('en-IN')}</strong>
+                <strong style={{ color: '#e67e22', fontSize: '20px', fontWeight: 'bold' }}>INR {estimatedPayableAmount.toLocaleString('en-IN')}</strong>
+                {useFreeApplicationCredit && (
+                  <div style={{ color: '#047857', fontSize: '12px', fontWeight: 700, marginTop: '6px' }}>
+                    Estimated credit discount: INR {estimatedFreeApplicationDiscount.toLocaleString('en-IN')}
+                  </div>
+                )}
               </div>
               <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '15px', backgroundColor: '#f8f9fa' }}>
                 <h3 style={{ fontSize: '14px', color: '#64748b', fontWeight: 'bold', marginBottom: '4px' }}>
@@ -3045,20 +3050,20 @@ export default function BookAppointment() {
                 <h4 style={{ fontSize: '14px', fontWeight: 'bold', color: '#0c2340', marginBottom: '15px' }}>
                   Scan UPI QR Code to Pay
                 </h4>
-                
+
                 {/* Generate dynamic QR Code pointing to upi://pay */}
                 <div style={{ margin: '0 auto 15px auto', width: '200px', height: '200px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                  <img 
+                  <img
                     src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                      `upi://pay?pa=dreamintoreality@ptyes&pn=Dream%20Catcher%20Immigrations&am=${totalPrice}&tr=${referenceNumber}&cu=INR`
+                      `upi://pay?pa=dreamintoreality@ptyes&pn=Dream%20Catcher%20Immigrations&am=${estimatedPayableAmount}&tr=${referenceNumber}&cu=INR`
                     )}`}
                     alt="UPI QR Code"
                     style={{ width: '190px', height: '190px' }}
                   />
                 </div>
-                
+
                 <p style={{ color: '#64748b', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
-                  Merchant: <strong>Dream Catcher Immigrations</strong><br/>
+                  Merchant: <strong>Dream Catcher Immigrations</strong><br />
                   UPI ID: <span style={{ color: '#e86020', fontWeight: 'bold' }}>dreamintoreality@ptyes</span>
                 </p>
               </div>
@@ -3077,100 +3082,121 @@ export default function BookAppointment() {
               </div>
             </div>
 
-            {hasFreeBookingCredit && (
-              <div style={{ backgroundColor: '#ecfdf5', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '16px', color: '#065f46', marginBottom: '20px', fontWeight: 700 }}>
-                1 free booking credit will be used for this appointment. No UPI transaction ID or screenshot is required.
+            {hasFreeApplicationCredit && (
+              <div style={{ backgroundColor: '#ecfdf5', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '16px', color: '#065f46', marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontWeight: 700, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={useFreeApplicationCredit}
+                    onChange={(e) => setUseFreeApplicationCredit(e.target.checked)}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <span>
+                    Use free application credit (covers 1 applicant's fee)
+                    <div style={{ fontSize: '12px', color: '#047857', fontWeight: 600, marginTop: '4px' }}>
+                      Available credits: {availableFreeApplications}. This requires admin free application verification before confirmation.
+                    </div>
+                  </span>
+                </label>
+                {useFreeApplicationCredit && (
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #bbf7d0', fontSize: '13px', lineHeight: 1.6 }}>
+                    <div>Applicants: <strong>{applicantCount}</strong></div>
+                    <div>Gross total: <strong>INR {totalPrice.toLocaleString('en-IN')}</strong></div>
+                    <div>Estimated discount: <strong>INR {estimatedFreeApplicationDiscount.toLocaleString('en-IN')}</strong></div>
+                    <div>Estimated payable balance: <strong>INR {estimatedPayableAmount.toLocaleString('en-IN')}</strong></div>
+                  </div>
+                )}
               </div>
             )}
 
             <form onSubmit={handleCheckout} style={{ borderTop: '1px solid #e2e8f0', paddingTop: '25px' }}>
-              {!hasFreeBookingCredit && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                {/* Reference ID Input */}
-                <div className="form-group">
-                  <label className="form-label" style={{ fontWeight: 'bold' }}>UPI Transaction / Reference ID (Required)</label>
-                  <input 
-                    type="text" 
-                    className="form-control"
-                    placeholder="Enter 12-digit transaction ID"
-                    style={{ borderColor: errors.paymentUpiId ? '#ef4444' : '#cbd5e1' }}
-                    value={paymentUpiId}
-                    onChange={(e) => {
-                      setPaymentUpiId(e.target.value);
-                      if (errors.paymentUpiId) setErrors(prev => ({ ...prev, paymentUpiId: '' }));
-                    }}
-                  />
-                  {errors.paymentUpiId && (
-                    <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.paymentUpiId}</span>
-                  )}
-                </div>
+              {requiresPaymentProof && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  {/* Reference ID Input */}
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 'bold' }}>UPI Transaction / Reference ID (Required)</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Enter 12-digit transaction ID"
+                      style={{ borderColor: errors.paymentUpiId ? '#ef4444' : '#cbd5e1' }}
+                      value={paymentUpiId}
+                      onChange={(e) => {
+                        setPaymentUpiId(e.target.value);
+                        if (errors.paymentUpiId) setErrors(prev => ({ ...prev, paymentUpiId: '' }));
+                      }}
+                    />
+                    {errors.paymentUpiId && (
+                      <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.paymentUpiId}</span>
+                    )}
+                  </div>
 
-                {/* Screenshot Uploader */}
-                <div className="form-group">
-                  <label className="form-label" style={{ fontWeight: 'bold' }}>Payment Screenshot / Proof (Required)</label>
-                  
-                  {paymentScreenshot ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '8px 12px', backgroundColor: '#f8fafc' }}>
-                      <img src={paymentScreenshot} alt="Receipt preview" style={{ width: '45px', height: '45px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} />
-                      <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#1e293b', display: 'block' }}>Screenshot Uploaded</span>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>Image file loaded successfully</span>
+                  {/* Screenshot Uploader */}
+                  <div className="form-group">
+                    <label className="form-label" style={{ fontWeight: 'bold' }}>Payment Screenshot / Proof (Required)</label>
+
+                    {paymentScreenshot ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '15px', border: '1px solid #cbd5e1', borderRadius: '4px', padding: '8px 12px', backgroundColor: '#f8fafc' }}>
+                        <img src={paymentScreenshot} alt="Receipt preview" style={{ width: '45px', height: '45px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #e2e8f0' }} />
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#1e293b', display: 'block' }}>Screenshot Uploaded</span>
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>Image file loaded successfully</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentScreenshot('')}
+                          style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
+                        >
+                          Remove
+                        </button>
                       </div>
-                      <button 
-                        type="button" 
-                        onClick={() => setPaymentScreenshot('')} 
-                        style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold' }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <input 
-                        type="file" 
-                        id="payment-screenshot-input" 
-                        accept="image/jpeg,image/jpg,image/png" 
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            handleScreenshotUpload(e.target.files[0]);
-                          }
-                        }}
-                      />
-                      <button 
-                        type="button" 
-                        onClick={() => document.getElementById('payment-screenshot-input').click()} 
-                        className="btn btn-outline" 
-                        style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', borderStyle: 'dashed' }}
-                      >
-                        📁 Choose Screenshot / Image File
-                      </button>
-                    </div>
-                  )}
+                    ) : (
+                      <div>
+                        <input
+                          type="file"
+                          id="payment-screenshot-input"
+                          accept="image/jpeg,image/jpg,image/png"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleScreenshotUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById('payment-screenshot-input').click()}
+                          className="btn btn-outline"
+                          style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', borderStyle: 'dashed' }}
+                        >
+                          📁 Choose Screenshot / Image File
+                        </button>
+                      </div>
+                    )}
 
-                  {errors.paymentScreenshot && (
-                    <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.paymentScreenshot}</span>
-                  )}
+                    {errors.paymentScreenshot && (
+                      <span style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.paymentScreenshot}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '35px' }}>
                 <button type="button" onClick={prevStep} className="btn btn-outline">Back</button>
-                <button 
-                  type="submit" 
-                  className="btn btn-primary" 
-                  disabled={loading || (!hasFreeBookingCredit && (!paymentUpiId || paymentUpiId.trim().length < 6 || !paymentScreenshot))}
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={loading || (requiresPaymentProof && (!paymentUpiId || paymentUpiId.trim().length < 6 || !paymentScreenshot))}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
                     gap: '8px',
-                    opacity: (loading || (!hasFreeBookingCredit && (!paymentUpiId || paymentUpiId.trim().length < 6 || !paymentScreenshot))) ? 0.6 : 1,
-                    cursor: (loading || (!hasFreeBookingCredit && (!paymentUpiId || paymentUpiId.trim().length < 6 || !paymentScreenshot))) ? 'not-allowed' : 'pointer'
+                    opacity: (loading || (requiresPaymentProof && (!paymentUpiId || paymentUpiId.trim().length < 6 || !paymentScreenshot))) ? 0.6 : 1,
+                    cursor: (loading || (requiresPaymentProof && (!paymentUpiId || paymentUpiId.trim().length < 6 || !paymentScreenshot))) ? 'not-allowed' : 'pointer'
                   }}
                 >
                   <Wallet size={18} />
-                  {loading ? 'Submitting Details...' : hasFreeBookingCredit ? 'Use Free Booking' : 'I Have Paid'}
+                  {loading ? 'Submitting Details...' : useFreeApplicationCredit ? 'Submit for Free Application Verification' : 'I Have Paid'}
                 </button>
               </div>
             </form>
@@ -3298,7 +3324,8 @@ export default function BookAppointment() {
             </button>
           </div>
 
-          <style dangerouslySetInnerHTML={{__html: `
+          <style dangerouslySetInnerHTML={{
+            __html: `
             @keyframes vfsFadeIn {
               from { opacity: 0; }
               to { opacity: 1; }

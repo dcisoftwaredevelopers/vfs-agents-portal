@@ -38,7 +38,8 @@ const agentSchema = new mongoose.Schema({
   discountEligible: { type: Boolean, default: false },
   stars: { type: Number, default: 0 },
   goldCoins: { type: Number, default: 0 },
-  freeBookingsAvailable: { type: Number, default: 0 },
+  freeApplicationsAvailable: { type: Number, default: 0 },
+  freeApplicationsUsed: { type: Number, default: 0 },
   completedBookingsCount: { type: Number, default: 0 },
   dailyAmountLimit: { type: Number, default: 100000 },
   lastBookingMilestoneReached: { type: Number, default: 0 },
@@ -65,6 +66,10 @@ agentSchema.virtual('isLocked').get(function () {
 agentSchema.methods.matchPassword = async function(enteredPassword) {
   if (!this.password) return false;
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+agentSchema.methods.hasFreeApplicationCredit = function () {
+  return Number(this.freeApplicationsAvailable || 0) > Number(this.freeApplicationsUsed || 0);
 };
 
 // ADDED: call on failed login — increments counter, locks account if threshold hit

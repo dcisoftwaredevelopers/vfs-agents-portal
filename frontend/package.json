@@ -11,6 +11,7 @@
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "@reduxjs/toolkit": "^2.12.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-virtual": "^3.14.5",
     "lucide-react": "^0.372.0",
     "qrcode.react": "^4.2.0",
@@ -19,7 +20,8 @@
     "react-redux": "^9.3.0",
     "react-router-dom": "^6.22.3",
     "react-toastify": "^11.1.0",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

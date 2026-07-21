@@ -239,6 +239,10 @@ export default function AdminDashboard() {
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [paymentActionError, setPaymentActionError] = useState('');
   const [verificationSuccessMsg, setVerificationSuccessMsg] = useState('');
+  const [freeApplications, setFreeApplications] = useState([]);
+  const [loadingFreeApplications, setLoadingFreeApplications] = useState(false);
+  const [freeApplicationActionError, setFreeApplicationActionError] = useState('');
+  const [freeApplicationSuccessMsg, setFreeApplicationSuccessMsg] = useState('');
   const [agents, setAgents] = useState([]);
   const [saasStats, setSaasStats] = useState(null);
   const [saasStatsLoading, setSaasStatsLoading] = useState(false);
@@ -890,6 +894,84 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchFreeApplications = async () => {
+    if (!user) return;
+    setLoadingFreeApplications(true);
+    setFreeApplicationActionError('');
+    try {
+      const res = await fetch(`${API_ROOT_URL}/admin/free-applications?status=PENDING`, {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFreeApplications(Array.isArray(data) ? data : (data.data || []));
+      } else {
+        setFreeApplicationActionError(data.message || 'Failed to fetch free application requests.');
+      }
+    } catch (err) {
+      setFreeApplicationActionError(err.message || 'Server error occurred.');
+    } finally {
+      setLoadingFreeApplications(false);
+    }
+  };
+
+  const handleApproveFreeApplication = async (apptId) => {
+    if (!window.confirm('Approve this free application credit and confirm the appointment?')) return;
+    setLoadingFreeApplications(true);
+    setFreeApplicationActionError('');
+    setFreeApplicationSuccessMsg('');
+    try {
+      const res = await fetch(`${API_ROOT_URL}/admin/free-applications/${apptId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFreeApplicationSuccessMsg(data.message || 'Free application approved.');
+        await fetchFreeApplications();
+        await fetchApplicationsAndStats();
+      } else {
+        setFreeApplicationActionError(data.message || 'Free application approval failed.');
+      }
+    } catch (err) {
+      setFreeApplicationActionError(err.message || 'Server error occurred.');
+    } finally {
+      setLoadingFreeApplications(false);
+    }
+  };
+
+  const handleRejectFreeApplication = async (apptId) => {
+    const reason = window.prompt('Enter the reason for rejecting this free application credit request:');
+    if (!reason) return;
+    setLoadingFreeApplications(true);
+    setFreeApplicationActionError('');
+    setFreeApplicationSuccessMsg('');
+    try {
+      const res = await fetch(`${API_ROOT_URL}/admin/free-applications/${apptId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFreeApplicationSuccessMsg(data.message || 'Free application rejected.');
+        await fetchFreeApplications();
+      } else {
+        setFreeApplicationActionError(data.message || 'Free application rejection failed.');
+      }
+    } catch (err) {
+      setFreeApplicationActionError(err.message || 'Server error occurred.');
+    } finally {
+      setLoadingFreeApplications(false);
+    }
+  };
+
   const fetchSubPayments = async () => {
     if (!user) return;
     setLoadingSubPayments(true);
@@ -1464,6 +1546,9 @@ export default function AdminDashboard() {
     if (activeTab === 'paymentVerification') {
       fetchPendingPayments();
     }
+    if (activeTab === 'freeApplications') {
+      fetchFreeApplications();
+    }
     if (activeTab === 'subPayments') {
       fetchSubPayments();
       fetchFreeSubscriptionOffer();
@@ -1783,6 +1868,7 @@ export default function AdminDashboard() {
     applications: "View and manage submitted client visa bookings. Track statuses, review attached documents, and export reports for offline coordination with centers.",
     agents: "Manage travel agency partners and system usage statistics. Use this to approve new registrations, block/unblock access, or grant complimentary billing days.",
     paymentVerification: "Review manual UPI payment proofs uploaded by agents for visa bookings. Approve valid payments to finalize slots, or reject incorrect transaction IDs.",
+    freeApplications: "Review one-applicant free credit claims. Approve only after any payable balance has been verified.",
     subPayments: "Verify monthly portal access payments from travel agencies. Approving a subscription unlocks booking and slot search capabilities for that agency.",
     slots: "Configure daily visa slot capacity and block out specific dates or time slots for maintenance. Changes instantly update availability for booking agents.",
     closures: "Declare partial or full closures for specific visa centers due to emergencies (e.g. weather, outages). This automatically blocks slots and logs reschedule requests.",
@@ -1907,6 +1993,7 @@ export default function AdminDashboard() {
             { id: 'applications', label: 'Visa Applications', icon: <Users size={16} /> },
             { id: 'agents', label: 'Agent & SaaS Management', icon: <Building2 size={16} /> },
             { id: 'paymentVerification', label: 'Payment Verification', icon: <CreditCard size={16} /> },
+            { id: 'freeApplications', label: 'Free Application Verification', icon: <CheckCircle size={16} /> },
             { id: 'subPayments', label: 'Subscription Payments', icon: <CreditCard size={16} /> },
             { id: 'slots', label: 'Slot & Capacity Management', icon: <Calendar size={16} /> },
             { id: 'closures', label: 'Emergency Closures', icon: <ShieldAlert size={16} /> },
@@ -2870,6 +2957,115 @@ export default function AdminDashboard() {
                                 </button>
                                 <button
                                   onClick={() => handleRejectPayment(appt._id)}
+                                  className="btn btn-outline"
+                                  style={{ padding: '6px 14px', fontSize: '12px', width: '100px', borderColor: '#ef4444', color: '#ef4444' }}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Free Application Verification */}
+        {activeTab === 'freeApplications' && (
+          <div>
+            <div className="card" style={{ marginBottom: '25px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, color: '#0c2340', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  Free Application Credit Verifications
+                  <InfoTooltip text={tooltipExplanations.freeApplications} />
+                </h3>
+                <button
+                  onClick={fetchFreeApplications}
+                  disabled={loadingFreeApplications}
+                  className="btn btn-outline"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <RefreshCw size={14} className={loadingFreeApplications ? 'spin-animation' : ''} />
+                  Refresh
+                </button>
+              </div>
+
+              {freeApplicationActionError && (
+                <div style={{ backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', padding: '15px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px' }}>
+                  {freeApplicationActionError}
+                </div>
+              )}
+
+              {freeApplicationSuccessMsg && (
+                <div style={{ backgroundColor: '#f0fdf4', borderLeft: '4px solid #22c55e', color: '#166534', padding: '15px', borderRadius: '4px', marginBottom: '20px', fontSize: '14px' }}>
+                  {freeApplicationSuccessMsg}
+                </div>
+              )}
+
+              {loadingFreeApplications && freeApplications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px' }}>
+                  <p style={{ color: '#64748b' }}>Loading free application verification requests...</p>
+                </div>
+              ) : freeApplications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', border: '1px dashed #cbd5e1', borderRadius: '6px', backgroundColor: '#f8f9fa' }}>
+                  <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>No free application credits are currently pending verification.</p>
+                </div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Agent</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Booking Ref</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Applicant Count</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Discount</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Payable</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Balance Payment</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600' }}>Submitted</th>
+                        <th style={{ padding: '12px 10px', fontSize: '13px', color: '#64748b', fontWeight: '600', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {freeApplications.map((item) => {
+                        const appt = item.appointment;
+                        const payment = item.payment;
+                        return (
+                          <tr key={appt._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '15px 10px', verticalAlign: 'top' }}>
+                              <strong>{appt.userId?.agencyName || appt.userId?.ownerName || 'N/A'}</strong>
+                              <div style={{ fontSize: '12px', color: '#64748b' }}>{appt.userId?.email || ''}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                Credits: {Math.max(0, (appt.userId?.freeApplicationsAvailable || 0) - (appt.userId?.freeApplicationsUsed || 0))}
+                              </div>
+                            </td>
+                            <td style={{ padding: '15px 10px', color: '#e67e22', fontWeight: 700 }}>{appt.referenceNumber}</td>
+                            <td style={{ padding: '15px 10px' }}>{appt.applicantCount || appt.applicantDetails?.length || 1}</td>
+                            <td style={{ padding: '15px 10px', color: '#047857', fontWeight: 700 }}>INR {(appt.freeApplicationDiscountAmount || 0).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '15px 10px', fontWeight: 700 }}>INR {(appt.payableAmount || 0).toLocaleString('en-IN')}</td>
+                            <td style={{ padding: '15px 10px' }}>
+                              {Number(appt.payableAmount || 0) > 0
+                                ? (payment ? `${payment.status} (${payment.transactionId})` : 'Missing proof')
+                                : 'No balance'}
+                            </td>
+                            <td style={{ padding: '15px 10px', fontSize: '12px', color: '#64748b' }}>
+                              {new Date(appt.createdAt).toLocaleString('en-GB')}
+                            </td>
+                            <td style={{ padding: '15px 10px', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                                <button
+                                  onClick={() => handleApproveFreeApplication(appt._id)}
+                                  className="btn btn-primary"
+                                  style={{ padding: '6px 14px', fontSize: '12px', width: '100px', backgroundColor: '#22c55e', borderColor: '#22c55e' }}
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleRejectFreeApplication(appt._id)}
                                   className="btn btn-outline"
                                   style={{ padding: '6px 14px', fontSize: '12px', width: '100px', borderColor: '#ef4444', color: '#ef4444' }}
                                 >

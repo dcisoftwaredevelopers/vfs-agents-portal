@@ -267,16 +267,21 @@ export default function AgentDashboard() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to redeem free booking');
+        throw new Error(data.message || 'Failed to redeem free application credit');
       }
-      const updatedUser = { ...user, freeBookingsAvailable: data.updatedAgent.freeBookingsAvailable, goldCoins: data.updatedAgent.goldCoins };
+      const updatedUser = {
+        ...user,
+        freeApplicationsAvailable: data.updatedAgent.freeApplicationsAvailable,
+        freeApplicationsUsed: data.updatedAgent.freeApplicationsUsed,
+        goldCoins: data.updatedAgent.goldCoins
+      };
       localStorage.setItem('userInfo', JSON.stringify(updatedUser));
       setUser(updatedUser);
-      setNotifications(prev => [{ title: 'Free Booking Redeemed', message: data.message, type: 'REDEEM_FREE_BOOKING', createdAt: new Date().toISOString() }, ...prev]);
+      setNotifications(prev => [{ title: 'Free Application Credit Redeemed', message: data.message, type: 'REDEEM_FREE_BOOKING', createdAt: new Date().toISOString() }, ...prev]);
       alert(data.message);
     } catch (err) {
       console.error('Redeem failed:', err);
-      alert(err.message || 'Could not redeem free booking');
+      alert(err.message || 'Could not redeem free application credit');
     }
   }, [user]);
 
@@ -308,7 +313,8 @@ export default function AgentDashboard() {
           profile.ownerName !== user.ownerName ||
           profile.stars !== user.stars ||
           profile.goldCoins !== user.goldCoins ||
-          profile.freeBookingsAvailable !== user.freeBookingsAvailable ||
+          profile.freeApplicationsAvailable !== user.freeApplicationsAvailable ||
+          profile.freeApplicationsUsed !== user.freeApplicationsUsed ||
           profile.referralsCount !== user.referralsCount
         ) {
           const updatedUser = { ...user, ...profile };
@@ -535,8 +541,10 @@ export default function AgentDashboard() {
               <div style={{ fontSize: '20px', fontWeight: '800', color: '#92400e' }}>{user.goldCoins ?? 0}</div>
             </div>
             <div style={{ border: '1px solid #dbeafe', backgroundColor: '#eff6ff', borderRadius: '6px', padding: '12px' }}>
-              <div style={{ fontSize: '12px', color: '#1e40af', marginBottom: '6px' }}>Free Bookings</div>
-              <div style={{ fontSize: '20px', fontWeight: '800', color: '#1d4ed8' }}>{user.freeBookingsAvailable ?? 0}</div>
+              <div style={{ fontSize: '12px', color: '#1e40af', marginBottom: '6px' }}>Free Applications</div>
+              <div style={{ fontSize: '20px', fontWeight: '800', color: '#1d4ed8' }}>
+                {Math.max(0, (user.freeApplicationsAvailable || 0) - (user.freeApplicationsUsed || 0))}
+              </div>
             </div>
           </div>
 
@@ -547,10 +555,10 @@ export default function AgentDashboard() {
                 onClick={redeemFreeBooking}
                 style={{ padding: '10px 16px', borderRadius: '6px', border: 'none', backgroundColor: '#1d4ed8', color: '#fff', fontWeight: '700', cursor: 'pointer' }}
               >
-                Redeem 1 Gold Coin for 1 Free Booking
+                Redeem 1 Gold Coin for 1 Free Application
               </button>
               <p style={{ marginTop: '8px', fontSize: '12px', color: '#475569' }}>
-                Use your earned Gold Coins to get a free booking credit instantly.
+                Use your earned Gold Coins to get a free application credit.
               </p>
             </div>
           )}
@@ -576,8 +584,8 @@ export default function AgentDashboard() {
                 user.status === 'Verification Pending' || (subscription && subscription.subscriptionStatus === 'Verification Pending')
                   ? 'Waiting for Admin Payment Verification'
                   : ['Expired', 'Subscription Expired'].includes(user.status)
-                  ? 'Subscription Expired - Renew to Continue'
-                  : 'Purchase Subscription for Access'
+                    ? 'Subscription Expired - Renew to Continue'
+                    : 'Purchase Subscription for Access'
               }
             >
               <button
@@ -1138,8 +1146,8 @@ export default function AgentDashboard() {
                   </div>
                   <div className="google-value" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '13px', color: '#5f6368' }}>A business logo helps personalize your partner portal</span>
-                    <div 
-                      className="google-avatar-container" 
+                    <div
+                      className="google-avatar-container"
                       onClick={() => alert(`Profile photo changes are locked. Please contact portal administrator at admindci@gmail.com to change your corporate logo.`)}
                     >
                       {user.agencyName ? user.agencyName.charAt(0).toUpperCase() : 'A'}

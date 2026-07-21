@@ -4,7 +4,7 @@ const rewardService = require('../services/rewardService');
 exports.getReferralStatus = async (req, res) => {
   try {
     const agent = await Agent.findById(req.user._id)
-      .select('referralCode referredBy discountEligible stars goldCoins freeBookingsAvailable completedBookingsCount lastBookingMilestoneReached referralsCount')
+      .select('referralCode referredBy discountEligible stars goldCoins freeApplicationsAvailable freeApplicationsUsed completedBookingsCount lastBookingMilestoneReached referralsCount')
       .lean();
 
     if (!agent) {
@@ -17,7 +17,8 @@ exports.getReferralStatus = async (req, res) => {
       discountEligible: agent.discountEligible,
       stars: agent.stars,
       goldCoins: agent.goldCoins,
-      freeBookingsAvailable: agent.freeBookingsAvailable,
+      freeApplicationsAvailable: agent.freeApplicationsAvailable,
+      freeApplicationsUsed: agent.freeApplicationsUsed,
       completedBookingsCount: agent.completedBookingsCount,
       lastBookingMilestoneReached: agent.lastBookingMilestoneReached,
       referralsCount: agent.referralsCount,
@@ -31,9 +32,10 @@ exports.redeemFreeBooking = async (req, res) => {
   try {
     const updatedAgent = await rewardService.redeemGoldForFreeBooking(req.user._id, null);
     res.json({
-      message: 'Free booking redeemed successfully. 1 free booking credit has been added to your account.',
+      message: 'Free application credit redeemed successfully. 1 credit has been added to your account.',
       updatedAgent: {
-        freeBookingsAvailable: updatedAgent.freeBookingsAvailable,
+        freeApplicationsAvailable: updatedAgent.freeApplicationsAvailable,
+        freeApplicationsUsed: updatedAgent.freeApplicationsUsed,
         goldCoins: updatedAgent.goldCoins,
       }
     });
