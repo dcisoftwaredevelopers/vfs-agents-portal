@@ -1,55 +1,102 @@
-const nodemailer = require('nodemailer');
-
-// FIX (speed): the old code called createTransporter() — and therefore built
-// a brand new SMTP connection (full TCP + TLS handshake + Gmail auth) — on
-// EVERY single email. With many agents submitting appointments/OTPs at the
-// same time, each request paid that full connection-setup cost from scratch,
-// which is the main reason things felt slow and also the kind of load that
-// makes Gmail's SMTP start throwing intermittent errors (matches the 500
-// "Failed to send verification email" seen in the console).
+// FIX (root cause, permanent): Gmail SMTP over Render kept failing with
+//   "SMTP/OTP Send Error: connect ENETUNREACH 2607:f8b0:..."
+// even after pool + family:4 fixes, because nodemailer's `service: 'gmail'`
+// preset does not reliably respect the `family` override on every code path,
+// so it kept trying Gmail's IPv6 address, which Render cannot route to.
 //
-// Fix: build ONE pooled transporter, reused for the lifetime of the process.
-// `pool: true` keeps a small set of authenticated connections open and reuses
-// them across sendMail() calls instead of reconnecting every time.
+// Real fix: stop using SMTP entirely. Resend's API is a plain HTTPS POST
+// (port 443, same path every other API call on this server already uses
+// successfully) — there is no separate SMTP socket, no DNS family selection,
+// no IPv6 route to fail on. This removes the whole class of error.
 //
-// FIX (timeout/ENETUNREACH): Render logs showed
-//   "SMTP/OTP Send Error: Connection timeout"
-//   "Failed to send ... reminder email: connect ENETUNREACH 2607:f8b0:..."
-// The IP in that second error is an IPv6 address for smtp.gmail.com.
-// Render's network doesn't reliably route outbound IPv6, so when Node
-// resolves smtp.gmail.com and tries the IPv6 address first, the connection
-// hangs and times out. `family: 4` forces the SMTP connection to use IPv4
-// only, skipping the unreachable IPv6 route entirely.
-let transporter = null;
+// exports.sendMail(mailOptions, defaultFromName) keeps the EXACT same
+// signature as the old nodemailer-based version, so Bookingcontroller.js,
+// Agentcontroller.js, and anywhere else that calls mailService.sendMail(...)
+// do NOT need to change at all.
 
-function getTransporter() {
-  if (!transporter) {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      throw new Error(
-        'EMAIL_USER / EMAIL_PASS environment variables are not set. Configure them in your Render service settings.'
-      );
-    }
+const RESEND_API_URL = 'https://api.resend.com/emails';
 
-    transporter = nodemailer.createTransport({
-      service: process.env.EMAIL_SERVICE || 'gmail',
-      pool: true,
-      maxConnections: 5,   // how many parallel SMTP connections to keep open
-      maxMessages: 100,    // recycle a connection after this many sends
-      family: 4,           // force IPv4 - avoids Render's unreachable IPv6 route to Gmail
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      }
-    });
+// Converts a nodemailer-style attachment ({ filename, content, contentType })
+// into the base64 string Resend's API expects. Supports content as a Buffer,
+// a base64 string, or a plain utf-8 string, so this stays compatible with
+// whatever format attachments were being built in elsewhere (e.g. invoice
+// PDFs from pdfService.js).
+function normalizeAttachment(attachment) {
+  if (!attachment) return null;
+
+  let base64Content;
+  const { content, encoding } = attachment;
+
+  if (Buffer.isBuffer(content)) {
+    base64Content = content.toString('base64');
+  } else if (typeof content === 'string' && encoding === 'base64') {
+    base64Content = content;
+  } else if (typeof content === 'string') {
+    // Heuristic: if it already looks like base64 (no whitespace, valid charset,
+    // reasonably long), trust it as-is; otherwise treat as raw text/utf-8.
+    const looksLikeBase64 = /^[A-Za-z0-9+/=]+$/.test(content) && content.length > 100;
+    base64Content = looksLikeBase64 ? content : Buffer.from(content, 'utf-8').toString('base64');
+  } else {
+    return null;
   }
-  return transporter;
+
+  return {
+    filename: attachment.filename || 'attachment',
+    content: base64Content
+  };
 }
 
 exports.sendMail = async (mailOptions, defaultFromName = 'VFS Global') => {
-  const fromAddress = process.env.EMAIL_USER;
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error(
+      'RESEND_API_KEY environment variable is not set. Configure it in your Render service settings.'
+    );
+  }
 
-  return getTransporter().sendMail({
-    from: mailOptions.from || `"${defaultFromName}" <${fromAddress}>`,
-    ...mailOptions
+  // EMAIL_FROM must be an address on a domain you've verified in Resend
+  // (Resend dashboard -> Domains). Until a domain is verified, Resend's
+  // shared sandbox address 'onboarding@resend.dev' works for testing but
+  // can usually only send to your own verified Resend account email.
+  const fromAddress = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+  const fromName = mailOptions.fromName || defaultFromName;
+
+  const payload = {
+    from: mailOptions.from || `${fromName} <${fromAddress}>`,
+    to: Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to],
+    subject: mailOptions.subject,
+    html: mailOptions.html
+  };
+
+  if (mailOptions.text) {
+    payload.text = mailOptions.text;
+  }
+
+  if (Array.isArray(mailOptions.attachments) && mailOptions.attachments.length > 0) {
+    const normalized = mailOptions.attachments.map(normalizeAttachment).filter(Boolean);
+    if (normalized.length > 0) {
+      payload.attachments = normalized;
+    }
+  }
+
+  const response = await fetch(RESEND_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
+
+  if (!response.ok) {
+    let errorMessage = `Resend API error (status ${response.status})`;
+    try {
+      const errorBody = await response.json();
+      errorMessage = errorBody.message || errorBody.error || errorMessage;
+    } catch (_) {
+      // response body wasn't JSON, keep the generic message
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
 };
