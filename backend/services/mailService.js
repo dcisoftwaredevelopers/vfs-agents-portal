@@ -1,21 +1,20 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require("resend");
 
-function createTransporter() {
-  return nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-      pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
-    }
-  });
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-exports.sendMail = async (mailOptions, defaultFromName = 'VFS Global') => {
-  const fromAddress = process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com';
-  const transporter = createTransporter();
+exports.sendMail = async (mailOptions, defaultFromName = "VFS Global") => {
+  try {
+    const response = await resend.emails.send({
+      from: `${defaultFromName} <${process.env.EMAIL_FROM}>`,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      html: mailOptions.html,
+    });
 
-  return transporter.sendMail({
-    from: mailOptions.from || `"${defaultFromName}" <${fromAddress}>`,
-    ...mailOptions
-  });
+    console.log("Resend Email Response:", response);
+    return response;
+  } catch (error) {
+    console.error("Resend Error:", error);
+    throw error;
+  }
 };
