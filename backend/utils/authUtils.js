@@ -2,7 +2,6 @@ const jwt = require('jsonwebtoken');
 
 const getJwtSecret = () => {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-  if (process.env.NODE_ENV !== 'production') return 'dev-secret-change-in-production';
   return null;
 };
 
@@ -15,6 +14,30 @@ const generateToken = (id) => {
   return jwt.sign({ id }, secret, {
     expiresIn: '30d',
   });
+};
+
+const AUTH_COOKIE_NAME = 'auth_token';
+const TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+const getAuthCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: TOKEN_MAX_AGE_MS,
+    path: '/',
+  };
+};
+
+const setAuthCookie = (res, token) => {
+  res.cookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
+};
+
+const clearAuthCookie = (res) => {
+  const { maxAge, ...options } = getAuthCookieOptions();
+  res.clearCookie(AUTH_COOKIE_NAME, options);
 };
 
 const normalizeEmail = (email) => (email || '').toLowerCase().trim();
@@ -58,7 +81,7 @@ const SAFE_AGENT_FIELDS = [
   'createdAt',
 ];
 
-const buildAuthResponse = (agent, token) => {
+const buildAuthResponse = (agent) => {
   if (!agent) {
     throw new Error('buildAuthResponse: agent object is required');
   }
@@ -74,19 +97,16 @@ const buildAuthResponse = (agent, token) => {
     return acc;
   }, {});
 
-  const response = { ...safeAgent };
-  // Only include `token` when one is actually provided (e.g. getProfile
-  // calls this with token = null and shouldn't send a `token: null` key).
-  if (token) {
-    response.token = token;
-  }
-
-  return response;
+  return { ...safeAgent };
 };
 
 module.exports = {
+  AUTH_COOKIE_NAME,
+  TOKEN_MAX_AGE_MS,
   getJwtSecret,
   generateToken,
+  setAuthCookie,
+  clearAuthCookie,
   normalizeEmail,
   buildAuthResponse,
 };

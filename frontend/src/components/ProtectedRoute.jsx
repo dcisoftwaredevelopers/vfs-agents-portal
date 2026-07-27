@@ -13,6 +13,8 @@ export default function ProtectedRoute({ children, adminOnly = false }) {
     }
   } else if (!user) {
     return <Navigate to="/login" replace />;
+  } else if (user.needsProfileCompletion || user.status === 'ProfileIncomplete') {
+    return <Navigate to="/complete-profile" replace />;
   }
 
   return children;

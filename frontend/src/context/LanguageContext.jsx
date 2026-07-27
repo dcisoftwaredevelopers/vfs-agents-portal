@@ -2,6 +2,8 @@ import React, { createContext, useState, useEffect } from 'react';
 import enTranslations from '../locales/en.json';
 import { API_BASE_URL } from '../config/api';
 
+const apiFetch = (url, options = {}) => window.fetch(url, { credentials: 'include', ...options });
+
 export const LanguageContext = createContext();
 
 export const LanguageProvider = ({ children }) => {
@@ -163,13 +165,12 @@ export const LanguageProvider = ({ children }) => {
 
     // Sync preference with database in the background if logged in
     const activeUser = adminInfo || userInfo;
-    if (activeUser?.token) {
+    if (activeUser?._id) {
       try {
-        await fetch(`${API_BASE_URL}/api/auth/profile/language`, {
+        await apiFetch(`${API_BASE_URL}/api/auth/profile/language`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${activeUser.token}`
           },
           body: JSON.stringify({ language: langCode })
         });
@@ -188,3 +189,5 @@ export const LanguageProvider = ({ children }) => {
     </LanguageContext.Provider>
   );
 };
+
+

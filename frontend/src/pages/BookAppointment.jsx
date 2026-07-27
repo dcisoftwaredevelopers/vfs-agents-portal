@@ -5,6 +5,8 @@ import { io } from 'socket.io-client';
 import SearchableDropdown from '../components/SearchableDropdown';
 import { API_BASE_URL, API_ROOT_URL } from '../config/api';
 
+const apiFetch = (url, options = {}) => window.fetch(url, { credentials: 'include', ...options });
+
 // Mandatory Documents — always shown, never priced
 const MANDATORY_DOCS = [
   { id: 'bank_statement', name: 'Bank Statement (6 Months)', desc: 'Required 6-month statement showing adequate funds verified by an officer.' },
@@ -81,6 +83,19 @@ const getFinalAppointmentFee = (countryCode, locationName = '') => {
 
   return DEFAULT_APPOINTMENT_FEE;
 };
+
+const isNetworkRequestError = (err) => {
+  const message = String(err?.message || '').toLowerCase();
+  return (
+    err?.name === 'TypeError' ||
+    message.includes('fetch') ||
+    message.includes('networkerror') ||
+    message.includes('failed to fetch') ||
+    message.includes('network')
+  );
+};
+
+const NETWORK_ERROR_MESSAGE = 'Unable to reach the booking server. Please check your internet connection and retry. No booking has been confirmed.';
 
 const GOING_TO_COUNTRIES = [
   { "code": "DZ", "name": "Algeria", "flag": "🇩🇿" },
@@ -394,7 +409,7 @@ const formatClosureMessage = (closure, countries = []) => {
 
 export default function BookAppointment() {
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('userInfo'));
+  const [user] = useState(() => JSON.parse(localStorage.getItem('userInfo')));
   const availableFreeApplications = Math.max(0, (user?.freeApplicationsAvailable || 0) - (user?.freeApplicationsUsed || 0));
   const hasFreeApplicationCredit = availableFreeApplications > 0;
 
@@ -415,8 +430,8 @@ export default function BookAppointment() {
   useEffect(() => {
     const fetchMasterData = async () => {
       try {
-        const countriesRes = await fetch(`${API_ROOT_URL}/booking/countries`);
-        const centersRes = await fetch(`${API_ROOT_URL}/booking/centers-config`);
+        const countriesRes = await apiFetch(`${API_ROOT_URL}/booking/countries`);
+        const centersRes = await apiFetch(`${API_ROOT_URL}/booking/centers-config`);
         if (countriesRes.ok && centersRes.ok) {
           const countriesData = await countriesRes.json();
           const centersData = await centersRes.json();
@@ -457,6 +472,7 @@ export default function BookAppointment() {
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState('');
+  const [networkRetryAction, setNetworkRetryAction] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPaymentSuccessAlert, setShowPaymentSuccessAlert] = useState(false);
 
@@ -493,14 +509,14 @@ export default function BookAppointment() {
 
     const checkEmergencyClosure = async () => {
       setActiveEmergencyClosure(null);
-      if (!destinationCountry || !user?.token) return;
+      if (!destinationCountry || !user) return;
 
       setClosureChecking(true);
       try {
         let matchedCenterId = '';
 
         if (location) {
-          const centersRes = await fetch(`${API_ROOT_URL}/booking/centers`);
+          const centersRes = await apiFetch(`${API_ROOT_URL}/booking/centers`);
           if (centersRes.ok) {
             const centers = await centersRes.json();
             const city = getCentreCityFromLabel(location);
@@ -520,8 +536,7 @@ export default function BookAppointment() {
         const params = new URLSearchParams({ countryCode: destinationCountry });
         if (matchedCenterId) params.append('centerId', matchedCenterId);
 
-        const res = await fetch(`${API_ROOT_URL}/booking/emergency-closures?${params.toString()}`, {
-          headers: { 'Authorization': `Bearer ${user.token}` }
+        const res = await apiFetch(`${API_ROOT_URL}/booking/emergency-closures?${params.toString()}`, {
         });
         if (!res.ok) return;
 
@@ -547,7 +562,7 @@ export default function BookAppointment() {
     return () => {
       cancelled = true;
     };
-  }, [destinationCountry, location, user?.token]);
+  }, [destinationCountry, location, user]);
 
   const [applicantsList, setApplicantsList] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
@@ -893,13 +908,13 @@ export default function BookAppointment() {
     setOtpLoading(true);
     setOtpError('');
     setOtpSuccess('');
+    setNetworkRetryAction('');
 
     try {
-      const res = await fetch(`${API_ROOT_URL}/booking/otp/send`, {
+      const res = await apiFetch(`${API_ROOT_URL}/booking/otp/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ email: emailStr })
       });
@@ -925,16 +940,14 @@ export default function BookAppointment() {
         }
       }
     } catch (err) {
-      const isNetworkError = !err.response || err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('NetworkError') || err.message?.includes('Failed to fetch') || err.message?.includes('network');
-      if (isNetworkError) {
-        console.warn("Backend offline, bypass OTP send in mock mode.");
-        setOtpTimer(300); // 5 minutes validity
-        setResendCooldown(60); // 60s cooldown
-        setOtpCodeInput('');
-        setShowOtpVerification(true);
-        setOtpSuccess('Offline Mode: Mock verification code sent to your email (use 123456).');
-        setOtpError('');
-        setErrors({});
+      if (isNetworkRequestError(err)) {
+        const message = 'Unable to send the verification code because the booking server could not be reached. Please retry.';
+        setNetworkRetryAction('otp-send');
+        if (showOtpVerification) {
+          setOtpError(message);
+        } else {
+          setErrors({ form: message });
+        }
       } else {
         if (showOtpVerification) {
           setOtpError(err.message || 'Failed to send verification code.');
@@ -956,13 +969,13 @@ export default function BookAppointment() {
     setOtpLoading(true);
     setOtpError('');
     setOtpSuccess('');
+    setNetworkRetryAction('');
 
     try {
-      const res = await fetch(`${API_ROOT_URL}/booking/otp/verify`, {
+      const res = await apiFetch(`${API_ROOT_URL}/booking/otp/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ email: emailToVerify, otpCode: otpCodeInput.trim() })
       });
@@ -973,14 +986,9 @@ export default function BookAppointment() {
         setOtpError(data.message || 'Verification failed. Please check the code.');
       }
     } catch (err) {
-      const isNetworkError = !err.response || err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('NetworkError') || err.message?.includes('Failed to fetch') || err.message?.includes('network');
-      if (isNetworkError) {
-        console.warn("Backend offline, bypass OTP verification in mock mode.");
-        if (otpCodeInput.trim() === '123456') {
-          handleOtpVerifiedSuccess(emailToVerify);
-        } else {
-          setOtpError('Offline Mode: Verification failed. Please enter 123456.');
-        }
+      if (isNetworkRequestError(err)) {
+        setNetworkRetryAction('otp-verify');
+        setOtpError('Unable to verify the code because the booking server could not be reached. Please retry.');
       } else {
         setOtpError(err.message || 'Network error. Unable to verify verification code.');
       }
@@ -1001,14 +1009,15 @@ export default function BookAppointment() {
       setErrors(prev => ({ ...prev, bookingDate: '' }));
       fetchSlots(bookingDate);
     }
-  }, [bookingDate, location, destinationCountry, user?.token]);
+  }, [bookingDate, location, destinationCountry, user]);
 
   const fetchSlots = async (date) => {
     setSlotsLoading(true);
+    setNetworkRetryAction('');
     try {
       // 1. Resolve the exact DB center by country + city. Many countries share the same city,
       // so matching by city alone can fetch another country's slots and bypass admin blocks.
-      const centersRes = await fetch(`${API_ROOT_URL}/booking/centers`);
+      const centersRes = await apiFetch(`${API_ROOT_URL}/booking/centers`);
       const centers = await centersRes.json();
       const city = getCentreCityFromLabel(location);
       const normalizedLocation = location.toLowerCase();
@@ -1026,9 +1035,8 @@ export default function BookAppointment() {
       }
 
       // 2. Query slots for this center and date
-      const res = await fetch(`${API_ROOT_URL}/booking/slots?centerId=${matchedCenter._id}&date=${date}&countryCode=${destinationCountry}`, {
+      const res = await apiFetch(`${API_ROOT_URL}/booking/slots?centerId=${matchedCenter._id}&date=${date}&countryCode=${destinationCountry}`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
         }
       });
       const data = await res.json();
@@ -1038,25 +1046,13 @@ export default function BookAppointment() {
         setApiError(data.message || 'Failed to fetch time slots');
       }
     } catch (err) {
-      console.warn("Backend server down, falling back to mock slots.");
-      const DEFAULT_SLOTS = [
-        '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-        '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
-        '15:00', '15:30'
-      ];
-      const mockSlots = DEFAULT_SLOTS.map((time, idx) => {
-        // Randomly make some slots fully booked (e.g. index divisible by 4)
-        const isFull = idx % 4 === 0;
-        return {
-          _id: `mock-slot-id-${idx}`,
-          time,
-          capacity: 5,
-          bookedCount: isFull ? 5 : Math.floor(Math.random() * 3),
-          lockedCount: 0,
-          status: 'AVAILABLE'
-        };
-      });
-      setAvailableSlots(mockSlots);
+      setAvailableSlots([]);
+      if (isNetworkRequestError(err)) {
+        setNetworkRetryAction('slots');
+        setApiError('Unable to load time slots because the booking server could not be reached. Please retry.');
+      } else {
+        setApiError(err.message || 'Failed to fetch time slots');
+      }
     } finally {
       setSlotsLoading(false);
     }
@@ -1254,6 +1250,7 @@ export default function BookAppointment() {
   const handleLockSlot = async () => {
     setLoading(true);
     setApiError('');
+    setNetworkRetryAction('');
 
     try {
       const selectedSlotObj = availableSlots.find(s => getSlotTime(s) === bookingTime);
@@ -1295,10 +1292,9 @@ export default function BookAppointment() {
       formData.append('totalAmount', totalPrice);
       formData.append('countryCode', destinationCountry);
 
-      const res = await fetch(`${API_ROOT_URL}/booking/lock`, {
+      const res = await apiFetch(`${API_ROOT_URL}/booking/lock`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`
         },
         body: formData
       });
@@ -1313,14 +1309,12 @@ export default function BookAppointment() {
       setLockExpirationTime(data.expiresAt);
       setStep(4);
     } catch (err) {
-      if (err.message.includes('fetch') || err.message.includes('NetworkError')) {
-        console.warn("Backend offline, bypass locking check in mock mode.");
-        setLockedAppointmentId('mock-lock-appt-' + Math.floor(Math.random() * 1000000));
-        setLockExpirationTime(Date.now() + 10 * 60 * 1000);
-        setStep(4);
-        return;
+      if (isNetworkRequestError(err)) {
+        setNetworkRetryAction('lock');
+        setApiError('Unable to reserve the selected slot because the booking server could not be reached. Please retry. No slot has been locked.');
+      } else {
+        setApiError(err.message);
       }
-      setApiError(err.message);
     } finally {
       setLoading(false);
     }
@@ -1375,9 +1369,10 @@ export default function BookAppointment() {
 
   // Submit Booking
   const handleCheckout = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     setApiError('');
     setErrors({});
+    setNetworkRetryAction('');
 
     if (!validateStep6()) return;
     setLoading(true);
@@ -1407,10 +1402,9 @@ export default function BookAppointment() {
         formData.append('screenshot', paymentScreenshot); // Actual File object
       }
 
-      const res = await fetch(`${API_ROOT_URL}/booking/payment`, {
+      const res = await apiFetch(`${API_ROOT_URL}/booking/payment`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`
         },
         body: formData,
       });
@@ -1433,35 +1427,12 @@ export default function BookAppointment() {
 
       setShowPaymentSuccessAlert(true);
     } catch (err) {
-      if (err.message.includes('fetch') || err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('network')) {
-        console.warn("Backend server down, falling back to mock booking confirmation.");
-        const mockConfirmation = {
-          referenceNumber: `VFS-GBR-${Math.floor(100000 + Math.random() * 900000)}`,
-          applicantDetails: finalApplicantDetails,
-          servicesSelected: [
-            ...MANDATORY_DOCS.map(d => ({ name: d.name, price: 0, isMandatory: true })),
-            ...selectedServices.map(id => {
-              const s = OPTIONAL_SERVICES.find(x => x.id === id);
-              return { name: s.name, price: s.price, isMandatory: false };
-            })
-          ],
-          bookingDate,
-          bookingTime,
-          totalAmount: totalPrice,
-          paymentStatus: 'Paid',
-          applicationStatus: 'Submitted'
-        };
-        setConfirmationData(mockConfirmation);
-
-        // Stop countdown timer
-        setLockExpirationTime(null);
-        setTimeLeft(0);
-        setLockedAppointmentId(null);
-
-        setShowPaymentSuccessAlert(true);
-        return;
+      if (isNetworkRequestError(err)) {
+        setNetworkRetryAction('checkout');
+        setApiError(NETWORK_ERROR_MESSAGE);
+      } else {
+        setApiError(err.message);
       }
-      setApiError(err.message);
     } finally {
       setLoading(false);
     }
@@ -1469,6 +1440,23 @@ export default function BookAppointment() {
 
   const printReceipt = () => {
     window.print();
+  };
+
+  const retryNetworkRequest = () => {
+    const action = networkRetryAction;
+    setNetworkRetryAction('');
+
+    if (action === 'otp-send') {
+      triggerOtpSend();
+    } else if (action === 'otp-verify') {
+      handleVerifyOtp();
+    } else if (action === 'slots' && bookingDate) {
+      fetchSlots(bookingDate);
+    } else if (action === 'lock') {
+      handleLockSlot();
+    } else if (action === 'checkout') {
+      handleCheckout();
+    }
   };
 
   const getMinDate = () => {
@@ -1679,8 +1667,19 @@ export default function BookAppointment() {
       <div className="glass-card-premium" style={{ marginTop: '35px', padding: '30px', border: '1px solid rgba(12, 35, 64, 0.08)' }}>
 
         {apiError && (
-          <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '12px', fontSize: '14px', borderRadius: '4px', marginBottom: '20px' }}>
-            {apiError}
+          <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '12px', fontSize: '14px', borderRadius: '4px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span>{apiError}</span>
+            {networkRetryAction && !['otp-send', 'otp-verify'].includes(networkRetryAction) && (
+              <button
+                type="button"
+                onClick={retryNetworkRequest}
+                className="btn btn-outline"
+                style={{ padding: '7px 16px', borderColor: '#b91c1c', color: '#b91c1c', backgroundColor: '#ffffff' }}
+                disabled={loading || slotsLoading}
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
@@ -1852,8 +1851,19 @@ export default function BookAppointment() {
                 )}
 
                 {otpError && (
-                  <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '10px 14px', fontSize: '13px', borderRadius: '4px', marginBottom: '20px' }}>
-                    {otpError}
+                  <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '10px 14px', fontSize: '13px', borderRadius: '4px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span>{otpError}</span>
+                    {['otp-send', 'otp-verify'].includes(networkRetryAction) && (
+                      <button
+                        type="button"
+                        onClick={retryNetworkRequest}
+                        className="btn btn-outline"
+                        style={{ padding: '6px 14px', borderColor: '#b91c1c', color: '#b91c1c', backgroundColor: '#ffffff' }}
+                        disabled={otpLoading}
+                      >
+                        Retry
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1911,7 +1921,7 @@ export default function BookAppointment() {
                 <div style={{ textAlign: 'center', marginTop: '25px', fontSize: '14px' }}>
                   <span style={{ color: '#666' }}>Didn't receive the OTP? </span>
                   <button
-                    onClick={triggerOtpSend}
+                    onClick={() => triggerOtpSend()}
                     style={{
                       background: 'none',
                       border: 'none',
@@ -1945,8 +1955,19 @@ export default function BookAppointment() {
                 )}
 
                 {errors.form && (
-                  <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '12px', fontSize: '14px', borderRadius: '4px', marginBottom: '20px' }}>
-                    {errors.form}
+                  <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '12px', fontSize: '14px', borderRadius: '4px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span>{errors.form}</span>
+                    {networkRetryAction === 'otp-send' && (
+                      <button
+                        type="button"
+                        onClick={retryNetworkRequest}
+                        className="btn btn-outline"
+                        style={{ padding: '7px 16px', borderColor: '#b91c1c', color: '#b91c1c', backgroundColor: '#ffffff' }}
+                        disabled={otpLoading}
+                      >
+                        Retry
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -3349,3 +3370,5 @@ export default function BookAppointment() {
     </div>
   );
 }
+
+

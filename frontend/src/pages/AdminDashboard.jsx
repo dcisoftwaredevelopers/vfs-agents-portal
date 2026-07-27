@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LanguageContext } from '../context/LanguageContext';
 import { API_BASE_URL, API_ROOT_URL } from '../config/api';
+
+const apiFetch = (url, options = {}) => window.fetch(url, { credentials: 'include', ...options });
 import { io } from 'socket.io-client';
 import Hero from '../components/Hero';
 import SearchableDropdown from '../components/SearchableDropdown';
@@ -270,7 +272,7 @@ export default function AdminDashboard() {
   // Fetch Centers
   const fetchCenters = async () => {
     try {
-      const res = await fetch(`${API_ROOT_URL}/booking/centers`);
+      const res = await apiFetch(`${API_ROOT_URL}/booking/centers`);
       const data = await res.json();
       if (res.ok) {
         setCenters(data);
@@ -284,13 +286,11 @@ export default function AdminDashboard() {
   const fetchApplicationsAndStats = async () => {
     if (!user) return;
     try {
-      const apptsRes = await fetch(`${API_ROOT_URL}/admin/appointments`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const apptsRes = await apiFetch(`${API_ROOT_URL}/admin/appointments`, {
       });
       const apptsData = await apptsRes.json();
 
-      const statsRes = await fetch(`${API_ROOT_URL}/admin/stats`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const statsRes = await apiFetch(`${API_ROOT_URL}/admin/stats`, {
       });
       const statsData = await statsRes.json();
 
@@ -441,8 +441,7 @@ export default function AdminDashboard() {
   const fetchBlockingStats = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/blocking-stats`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/blocking-stats`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -456,8 +455,7 @@ export default function AdminDashboard() {
   const fetchClosures = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/emergency-closures`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/emergency-closures`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -475,9 +473,8 @@ export default function AdminDashboard() {
     if (!selectedCenter || !queryDate) return;
     setSlotsLoading(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_ROOT_URL}/booking/slots?centerId=${selectedCenter}&date=${queryDate}&countryCode=${selectedCountry}`,
-        { headers: { 'Authorization': `Bearer ${user.token}` } }
       ); const data = await res.json();
       if (res.ok) {
         setAdminSlots(data);
@@ -494,8 +491,8 @@ export default function AdminDashboard() {
 
   const fetchAdminMasterData = async () => {
     try {
-      const countriesRes = await fetch(`${API_ROOT_URL}/booking/countries`);
-      const centersConfigRes = await fetch(`${API_ROOT_URL}/booking/centers-config`);
+      const countriesRes = await apiFetch(`${API_ROOT_URL}/booking/countries`);
+      const centersConfigRes = await apiFetch(`${API_ROOT_URL}/booking/centers-config`);
       if (countriesRes.ok && centersConfigRes.ok) {
         const countriesData = await countriesRes.json();
         const centersConfigData = await centersConfigRes.json();
@@ -510,8 +507,7 @@ export default function AdminDashboard() {
   const fetchAdminUsers = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/users`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/users`, {
       });
       if (res.ok) {
         setAdminUsers(await res.json());
@@ -535,8 +531,7 @@ export default function AdminDashboard() {
   const fetchMonthSummary = async () => {
     if (!selectedCenter || !selectedCountry || !calendarMonth) return;
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/month-summary?month=${calendarMonth}&centerId=${selectedCenter}&countryCode=${selectedCountry}`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/month-summary?month=${calendarMonth}&centerId=${selectedCenter}&countryCode=${selectedCountry}`, {
       });
       if (res.ok) {
         setMonthSummary(await res.json());
@@ -549,8 +544,7 @@ export default function AdminDashboard() {
   const fetchBlocksHistory = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/blocks`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/blocks`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -613,11 +607,10 @@ export default function AdminDashboard() {
             newHour += 1;
           }
           const endStr = `${String(newHour).padStart(2, '0')}:${String(newMin).padStart(2, '0')}`;
-          const res = await fetch(`${API_ROOT_URL}/admin/slots/block`, {
+          const res = await apiFetch(`${API_ROOT_URL}/admin/slots/block`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${user.token}`
             },
             body: JSON.stringify({
               ...payload,
@@ -646,11 +639,10 @@ export default function AdminDashboard() {
 
     try {
       setSlotsLoading(true);
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/block`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/block`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify(payload)
       });
@@ -677,11 +669,10 @@ export default function AdminDashboard() {
     setBlockSuccessMsg('');
     try {
       setSlotsLoading(true);
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/unblock`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/unblock`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ blockId })
       });
@@ -713,11 +704,10 @@ export default function AdminDashboard() {
     setBlockSuccessMsg('');
     try {
       setSlotsLoading(true);
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/unblock-bulk`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/unblock-bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ blockIds: selectedBlockIds })
       });
@@ -796,8 +786,7 @@ export default function AdminDashboard() {
     setLoadingPayments(true);
     setPaymentActionError('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/payments-verification`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/payments-verification`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -838,16 +827,15 @@ export default function AdminDashboard() {
     setPaymentActionError('');
     setVerificationSuccessMsg('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/payments-verification/${apptId}/approve`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/payments-verification/${apptId}/approve`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         }
       });
       const data = await res.json();
       if (res.ok) {
-        setVerificationSuccessMsg('Payment successfully verified and approved! PDF email has been sent.');
+        setVerificationSuccessMsg(data.message || 'Payment approved and confirmation email sent.');
         await fetchPendingPayments();
         await fetchApplicationsAndStats();
       } else {
@@ -871,10 +859,9 @@ export default function AdminDashboard() {
     setPaymentActionError('');
     setVerificationSuccessMsg('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/payments-verification/${apptId}/reject`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/payments-verification/${apptId}/reject`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ reason })
@@ -899,8 +886,7 @@ export default function AdminDashboard() {
     setLoadingFreeApplications(true);
     setFreeApplicationActionError('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/free-applications?status=PENDING`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/free-applications?status=PENDING`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -921,10 +907,9 @@ export default function AdminDashboard() {
     setFreeApplicationActionError('');
     setFreeApplicationSuccessMsg('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/free-applications/${apptId}/approve`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/free-applications/${apptId}/approve`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         }
       });
@@ -950,10 +935,9 @@ export default function AdminDashboard() {
     setFreeApplicationActionError('');
     setFreeApplicationSuccessMsg('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/free-applications/${apptId}/reject`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/free-applications/${apptId}/reject`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ reason })
@@ -976,8 +960,7 @@ export default function AdminDashboard() {
     if (!user) return;
     setLoadingSubPayments(true);
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/subscription-payments`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/subscription-payments`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -996,8 +979,7 @@ export default function AdminDashboard() {
     if (!user) return;
     setLoadingFreeOffer(true);
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/settings/free-subscription-offer`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/settings/free-subscription-offer`, {
       });
       const data = await res.json();
 
@@ -1032,11 +1014,10 @@ export default function AdminDashboard() {
 
     setLoadingFreeOffer(true);
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/settings/free-subscription-offer`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/settings/free-subscription-offer`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
           enabled: freeOfferDraft.enabled,
@@ -1071,8 +1052,7 @@ export default function AdminDashboard() {
     setLoadingAdminFreeSlots(true);
     setAdminFreeSlotsError('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/settings/free-subscription-slots`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/settings/free-subscription-slots`, {
       });
       const data = await res.json();
 
@@ -1108,11 +1088,10 @@ export default function AdminDashboard() {
     setLoadingAdminFreeSlots(true);
     setAdminFreeSlotsError('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/settings/free-subscription-slots`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/settings/free-subscription-slots`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ slotLimit })
       });
@@ -1149,11 +1128,10 @@ export default function AdminDashboard() {
     setGrantingFreeSubscriptionId(agent._id);
     setAdminFreeSlotsError('');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/agents/${agent._id}/grant-free-subscription`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/agents/${agent._id}/grant-free-subscription`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         }
       });
       const data = await res.json();
@@ -1214,10 +1192,9 @@ export default function AdminDashboard() {
     if (!window.confirm(`Approve this subscription only after matching UTR, amount, date/time, and screenshot with the bank/UPI statement.${expectedText}${utrText}${warningText}\n\nThis will activate the travel agency subscription and enable bookings.`)) return;
     setLoadingSubPayments(true);
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/subscription-payments/${subId}/approve`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/subscription-payments/${subId}/approve`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         }
       });
@@ -1244,10 +1221,9 @@ export default function AdminDashboard() {
     }
     setLoadingSubPayments(true);
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/subscription-payments/${selectedSubForRejection._id}/reject`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/subscription-payments/${selectedSubForRejection._id}/reject`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ remarks: rejectRemarks })
@@ -1275,8 +1251,7 @@ export default function AdminDashboard() {
     setSaasStatsLoading(true);
     setSaasAgentsError('');
     try {
-      const agentsRes = await fetch(`${API_ROOT_URL}/admin/users`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const agentsRes = await apiFetch(`${API_ROOT_URL}/admin/users`, {
       });
       const agentsData = await agentsRes.json();
       if (agentsRes.ok) {
@@ -1287,8 +1262,7 @@ export default function AdminDashboard() {
         console.error('Failed to load registered agencies:', message);
       }
 
-      const statsRes = await fetch(`${API_ROOT_URL}/admin/b2b-stats?month=${filterSaaSMonth}`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const statsRes = await apiFetch(`${API_ROOT_URL}/admin/b2b-stats?month=${filterSaaSMonth}`, {
       });
       const statsData = await statsRes.json();
       if (statsRes.ok) {
@@ -1309,11 +1283,10 @@ export default function AdminDashboard() {
   const handleAgentAction = async (agentId, action, extraBody = {}) => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/agents/${agentId}/${action}`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/agents/${agentId}/${action}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify(extraBody)
       });
@@ -1343,11 +1316,10 @@ export default function AdminDashboard() {
     }
 
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/agents/${agentId}/daily-limit`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/agents/${agentId}/daily-limit`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ dailyAmountLimit })
       });
@@ -1441,8 +1413,7 @@ export default function AdminDashboard() {
       const readParam = notifReadStatus !== 'All' ? `&read=${notifReadStatus === 'Read'}` : '';
       const searchParam = notifSearch ? `&search=${encodeURIComponent(notifSearch)}` : '';
 
-      const res = await fetch(`${API_ROOT_URL}/admin/notifications?page=${page}&limit=10${categoryParam}${readParam}${searchParam}`, {
-        headers: { 'Authorization': `Bearer ${adminInfo.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/notifications?page=${page}&limit=10${categoryParam}${readParam}${searchParam}`, {
       });
       if (res.ok) {
         const data = await res.json();
@@ -1461,8 +1432,7 @@ export default function AdminDashboard() {
       const adminInfo = JSON.parse(localStorage.getItem('adminInfo'));
       if (!adminInfo) return;
 
-      const res = await fetch(`${API_ROOT_URL}/admin/notifications?read=false&limit=1`, {
-        headers: { 'Authorization': `Bearer ${adminInfo.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/admin/notifications?read=false&limit=1`, {
       });
       if (res.ok) {
         const data = await res.json();
@@ -1478,9 +1448,8 @@ export default function AdminDashboard() {
       const adminInfo = JSON.parse(localStorage.getItem('adminInfo'));
       if (!adminInfo) return;
 
-      const res = await fetch(`${API_ROOT_URL}/admin/notifications/${id}/read`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/notifications/${id}/read`, {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${adminInfo.token}` }
       });
       if (res.ok) {
         setAdminNotifications(prev => prev.map(n => n._id === id ? { ...n, read: true } : n));
@@ -1496,9 +1465,8 @@ export default function AdminDashboard() {
       const adminInfo = JSON.parse(localStorage.getItem('adminInfo'));
       if (!adminInfo) return;
 
-      const res = await fetch(`${API_ROOT_URL}/admin/notifications/mark-all-read`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/notifications/mark-all-read`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${adminInfo.token}` }
       });
       if (res.ok) {
         setAdminNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -1628,11 +1596,10 @@ export default function AdminDashboard() {
     }
 
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/capacity`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/capacity`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ slotId, newCapacity: newCap })
       });
@@ -1652,11 +1619,10 @@ export default function AdminDashboard() {
   const handleBlockSlot = async (slot) => {
     const reason = slotReasonMap[slot._id] || 'VIP';
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/block`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/block`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
           countryCode: selectedCountry,
@@ -1702,11 +1668,10 @@ export default function AdminDashboard() {
   // 4. Block Time Range
   const handleBlockRange = async () => {
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/slots/block-range`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/slots/block-range`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
           centerId: selectedCenter,
@@ -1735,11 +1700,10 @@ export default function AdminDashboard() {
       return;
     }
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/block-date`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/block-date`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ centerId: selectedCenter, date: closureStartDate })
       });
@@ -1765,11 +1729,10 @@ export default function AdminDashboard() {
 
     setClosureStatus('Processing closure...');
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/emergency-closure`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/emergency-closure`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
           countryCode: selectedCountry,
@@ -1806,11 +1769,10 @@ export default function AdminDashboard() {
     if (!confirmReopen) return;
 
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/emergency-closure/reopen`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/emergency-closure/reopen`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ closureId })
       });
@@ -1836,11 +1798,10 @@ export default function AdminDashboard() {
     setBulkStatus('Uploading slots...');
     setUploadSummary(null);
     try {
-      const res = await fetch(`${API_ROOT_URL}/admin/bulk-upload`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/bulk-upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({ centerId: selectedCenter, csvText })
       });
@@ -2829,6 +2790,7 @@ export default function AdminDashboard() {
                       {pendingPayments.map((item) => {
                         const appt = item.appointment;
                         const pay = item.payment;
+                        const paymentWarnings = pay?.verificationReview?.warnings || [];
                         return (
                           <tr key={appt._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '15px 10px', verticalAlign: 'top' }}>
@@ -2927,6 +2889,24 @@ export default function AdminDashboard() {
                               <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: '#0c2340', backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px' }}>
                                 {pay ? pay.transactionId : 'N/A'}
                               </span>
+                              {paymentWarnings.length > 0 && (
+                                <div style={{
+                                  marginTop: '8px',
+                                  padding: '7px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#fef3c7',
+                                  color: '#92400e',
+                                  fontSize: '11px',
+                                  lineHeight: '1.4'
+                                }}>
+                                  <strong>Review warnings:</strong>
+                                  <ul style={{ margin: '4px 0 0 14px', padding: 0 }}>
+                                    {paymentWarnings.map((warning) => (
+                                      <li key={warning}>{warning}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                             </td>
                             <td style={{ padding: '15px 10px', verticalAlign: 'top' }}>
                               {pay && pay.screenshot ? (
@@ -5185,3 +5165,6 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
+
+

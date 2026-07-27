@@ -12,6 +12,7 @@ const GlobalHome = lazy(() => import('./pages/GlobalHome'));
 const InfoPage = lazy(() => import('./pages/InfoPage'));
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
+const CompleteProfile = lazy(() => import('./pages/CompleteProfile'));
 const BookAppointment = lazy(() => import('./pages/BookAppointment'));
 const TrackApplication = lazy(() => import('./pages/TrackApplication'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
@@ -37,6 +38,7 @@ function App() {
                 <Route path="/info/:pageKey" element={<InfoPage />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/complete-profile" element={<CompleteProfile />} />
                 <Route path="/book" element={<BookAppointment />} />
                 <Route path="/track" element={<TrackApplication />} />
                 <Route path="/admin" element={<AdminDashboard />} />

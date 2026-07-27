@@ -130,13 +130,13 @@ exports.initQueueService = (io) => {
             const transporter = nodemailer.createTransport({
               service: 'gmail',
               auth: {
-                user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-                pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
               }
             });
 
             const mailOptions = {
-              from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
+              from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER}>`,
               to: agent.email,
               subject: 'URGENT: Visa Booking Subscription Expired',
               html: `
@@ -196,13 +196,13 @@ exports.initQueueService = (io) => {
             const transporter = nodemailer.createTransport({
               service: 'gmail',
               auth: {
-                user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-                pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
+                user: process.env.EMAIL_USER,
+                pass: process.env.EMAIL_PASS
               }
             });
 
             const mailOptions = {
-              from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
+              from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER}>`,
               to: agent.email,
               subject: subjectText,
               html: `

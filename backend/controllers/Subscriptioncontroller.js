@@ -244,7 +244,9 @@ exports.getHistory = async (req, res) => {
 // Get Invoices for Agent
 exports.getInvoices = async (req, res) => {
   try {
-    const invoices = await Invoice.find({ agentId: req.user._id }).sort({ createdAt: -1 });
+    const invoices = await Invoice.find({ agentId: req.user._id })
+      .select('-pdfData')
+      .sort({ createdAt: -1 });
     res.json(invoices);
   } catch (error) {
     res.status(500).json({ message: error.message });

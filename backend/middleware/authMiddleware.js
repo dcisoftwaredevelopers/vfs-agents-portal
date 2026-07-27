@@ -1,23 +1,30 @@
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const Agent = require('../models/Agent');
+const { AUTH_COOKIE_NAME } = require('../utils/authUtils');
 
 const getJwtSecret = () => {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-  if (process.env.NODE_ENV !== 'production') return 'dev-secret-change-in-production';
   return null;
 };
 
 const protect = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  let token;
-
-  if (authHeader && authHeader.startsWith('Bearer')) {
-    token = authHeader.split(' ')[1];
-  }
+  const cookies = String(req.headers.cookie || '')
+    .split(';')
+    .map((cookie) => cookie.trim())
+    .filter(Boolean)
+    .reduce((acc, cookie) => {
+      const separatorIndex = cookie.indexOf('=');
+      if (separatorIndex === -1) return acc;
+      const key = decodeURIComponent(cookie.slice(0, separatorIndex).trim());
+      const value = decodeURIComponent(cookie.slice(separatorIndex + 1).trim());
+      acc[key] = value;
+      return acc;
+    }, {});
+  const token = cookies[AUTH_COOKIE_NAME];
 
   if (!token) {
-    return res.status(401).json({ message: 'Not authorized, no token' });
+    return res.status(401).json({ message: 'Not authorized, no auth cookie' });
   }
 
   try {

@@ -7,13 +7,7 @@ export const apiSlice = createApi({
   reducerPath: 'api',
   baseQuery: fetchBaseQuery({
     baseUrl: API_BASE_URL,
-    prepareHeaders: (headers, { getState }) => {
-      const token = getState()?.auth?.token;
-      if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-      }
-      return headers;
-    },
+    credentials: 'include',
   }),
   tagTypes: ['User', 'Tracking', 'AuditLogs', 'VisaApplications', 'PaymentVerifications', 'SubscriptionPayments'],
   endpoints: () => ({}),

@@ -2,6 +2,10 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
+const requiredWhenProfileComplete = function () {
+  return this.status !== 'ProfileIncomplete';
+};
+
 const agentSchema = new mongoose.Schema({
   clerkId: { type: String, unique: true, sparse: true, index: true },
   agentId: { type: String, unique: true, sparse: true, index: true },
@@ -9,19 +13,19 @@ const agentSchema = new mongoose.Schema({
   ownerName: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, select: false }, // CHANGED: select:false so it's never fetched by default
-  mobile: { type: String, required: true },
-  panNumber: { type: String, required: true },
-  aadharNumber: { type: String, required: true },
+  mobile: { type: String, required: requiredWhenProfileComplete },
+  panNumber: { type: String, required: requiredWhenProfileComplete },
+  aadharNumber: { type: String, required: requiredWhenProfileComplete },
   gstNumber: { type: String, required: false }, // Optional, uniqueness enforced only when provided (via partial index)
   businessRegNumber: { type: String },
-  address: { type: String, required: true },
-  city: { type: String, required: true },
-  state: { type: String, required: true },
-  country: { type: String, required: true },
+  address: { type: String, required: requiredWhenProfileComplete },
+  city: { type: String, required: requiredWhenProfileComplete },
+  state: { type: String, required: requiredWhenProfileComplete },
+  country: { type: String, required: requiredWhenProfileComplete },
   logo: { type: String }, // stores base64 company logo
   status: { 
     type: String, 
-    enum: ['Pending', 'Verified', 'Rejected', 'Blocked', 'Subscription Expired', 'Active', 'Deleted'], 
+    enum: ['ProfileIncomplete', 'Pending', 'Verified', 'Rejected', 'Blocked', 'Subscription Expired', 'Active', 'Deleted'], 
     default: 'Pending' 
   },
   role: { type: String, enum: ['SUPER_ADMIN', 'Agent'], default: 'Agent' },

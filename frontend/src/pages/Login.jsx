@@ -34,7 +34,11 @@ export default function Login() {
     if (admin) {
       navigate('/admin-dashboard');
     } else if (user) {
-      navigate(user.role === 'SUPER_ADMIN' || user.role === 'admin' ? '/admin-dashboard' : '/agent-dashboard');
+      if (user.needsProfileCompletion || user.status === 'ProfileIncomplete') {
+        navigate('/complete-profile');
+      } else {
+        navigate(user.role === 'SUPER_ADMIN' || user.role === 'admin' ? '/admin-dashboard' : '/agent-dashboard');
+      }
     }
   }, [user, admin, navigate]);
 
@@ -55,7 +59,11 @@ export default function Login() {
         : await login({ email: loginEmail, password: loginPassword }).unwrap();
 
       dispatch(setCredentials(data));
-      navigate(data.role === 'SUPER_ADMIN' || data.role === 'admin' ? '/admin-dashboard' : '/agent-dashboard');
+      if (data.needsProfileCompletion || data.status === 'ProfileIncomplete') {
+        navigate(data.redirectTo || '/complete-profile');
+      } else {
+        navigate(data.role === 'SUPER_ADMIN' || data.role === 'admin' ? '/admin-dashboard' : '/agent-dashboard');
+      }
     } catch (err) {
       setApiError(err?.data?.message || err?.error || 'Authentication failed.');
     }
