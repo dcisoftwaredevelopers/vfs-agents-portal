@@ -26,7 +26,7 @@ dotenv.config();
 const assertProductionEnv = () => {
   if (process.env.NODE_ENV !== 'production') return;
 
-  const requiredEnvVars = ['JWT_SECRET', 'EMAIL_USER', 'EMAIL_PASS'];
+  const requiredEnvVars = ['JWT_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM'];
   const missing = requiredEnvVars.filter((name) => !String(process.env[name] || '').trim());
 
   if (missing.length > 0) {
