@@ -10,9 +10,13 @@ import {
   logout,
 } from '../features/auth/authSlice';
 import dci_logo from '../assets/dci_logo.png';
+import { API_ROOT_URL } from '../config/api';
+
+const apiFetch = (url, options = {}) => window.fetch(url, { credentials: 'include', ...options });
 
 const STATUS_COLORS = {
   Active: '#10b981',
+  ProfileIncomplete: '#f97316',
   Pending: '#dfa015',
   'Verification Pending': '#dfa015',
   'Subscription Expired': '#ef4444',
@@ -58,12 +62,22 @@ export default function Header() {
 
   const getStatusColor = (status) => STATUS_COLORS[status] || '#64748b';
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiFetch(`${API_ROOT_URL}/auth/logout`, { method: 'POST' });
+    } catch (error) {
+      console.error('Logout request failed:', error);
+    }
     dispatch(logout());
     navigate('/login');
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
+    try {
+      await apiFetch(`${API_ROOT_URL}/auth/logout`, { method: 'POST' });
+    } catch (error) {
+      console.error('Logout request failed:', error);
+    }
     dispatch(logout());
     navigate('/admin-login');
   };

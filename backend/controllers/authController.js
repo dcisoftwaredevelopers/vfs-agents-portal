@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const Agent = require('../models/Agent');
-const { generateToken, normalizeEmail, buildAuthResponse } = require('../utils/authUtils');
+const { generateToken, setAuthCookie, clearAuthCookie, normalizeEmail, buildAuthResponse } = require('../utils/authUtils');
 const rewardService = require('../services/rewardService');
 // NOTE: asyncHandler wrapping is done in routes/auth.js via your own
 // utils/asyncHandler.js — so these controller functions are plain async
@@ -11,6 +11,78 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const RESOLVED_ADMIN_EMAIL = normalizeEmail(ADMIN_EMAIL || 'admindci@gmail.com');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '');
+
+const PROFILE_COMPLETION_FIELDS = [
+  'agencyName',
+  'ownerName',
+  'mobile',
+  'panNumber',
+  'aadharNumber',
+  'address',
+  'city',
+  'state',
+  'country',
+];
+
+const buildProfileIncompleteResponse = (agent) => ({
+  ...buildAuthResponse(agent),
+  needsProfileCompletion: true,
+  redirectTo: '/complete-profile',
+  message: 'Please complete your agency profile to finish registration.',
+  requiredFields: PROFILE_COMPLETION_FIELDS,
+});
+
+const validateCompleteProfilePayload = (body) => {
+  const {
+    agencyName,
+    ownerName,
+    mobile,
+    gstNumber,
+    panNumber,
+    aadharNumber,
+    address,
+    city,
+    state,
+    country,
+  } = body;
+  const errors = {};
+
+  if (!agencyName || agencyName.trim().length < 2) {
+    errors.agencyName = 'Agency name must be at least 2 characters long';
+  }
+  if (!ownerName || ownerName.trim().length < 2) {
+    errors.ownerName = 'Owner name must be at least 2 characters long';
+  }
+  if (!mobile || !/^\+?[1-9]\d{1,14}$/.test(String(mobile).replace(/\s+/g, ''))) {
+    errors.mobile = 'Please provide a valid mobile number (e.g. +91 9876543210)';
+  }
+  if (gstNumber && gstNumber.trim()) {
+    const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    if (!gstRegex.test(gstNumber.trim().toUpperCase())) {
+      errors.gstNumber = 'Please provide a valid GST number (e.g. 22AAAAA0000A1Z5)';
+    }
+  }
+  if (!panNumber || !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNumber.trim().toUpperCase())) {
+    errors.panNumber = 'Please provide a valid 10-character PAN number (e.g. ABCDE1234F)';
+  }
+  if (!aadharNumber || !/^[0-9]{12}$/.test(aadharNumber.trim().replace(/\s+/g, ''))) {
+    errors.aadharNumber = 'Aadhar number must be exactly 12 digits';
+  }
+  if (!address || address.trim().length < 5) {
+    errors.address = 'Office Address must be at least 5 characters long';
+  }
+  if (!city || city.trim().length < 2) {
+    errors.city = 'City is required';
+  }
+  if (!state || state.trim().length < 2) {
+    errors.state = 'State is required';
+  }
+  if (!country || country.trim().length < 2) {
+    errors.country = 'Country is required';
+  }
+
+  return errors;
+};
 
 // ---- validators ----
 // NOTE: agencyName/ownerName/email/mobile/address/city/state/country
@@ -82,7 +154,8 @@ const registerAgent = async (req, res) => {
     }
 
     const token = generateToken(agent._id);
-    res.status(201).json(buildAuthResponse(agent, token));
+    setAuthCookie(res, token);
+    res.status(201).json(buildAuthResponse(agent));
   } catch (error) {
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern || {})[0];
@@ -157,7 +230,8 @@ const loginAgent = async (req, res) => {
   }
 
   const token = generateToken(agent._id);
-  res.json(buildAuthResponse(agent, token));
+  setAuthCookie(res, token);
+  res.json(buildAuthResponse(agent));
 };
 
 const googleAuth = async (req, res) => {
@@ -188,24 +262,36 @@ const googleAuth = async (req, res) => {
   let agent = await Agent.findOne({ email: cleanEmail });
 
   if (!agent) {
-    const randomPassword = crypto.randomBytes(24).toString('hex') + 'A1!';
     const isFirstAdmin = cleanEmail === RESOLVED_ADMIN_EMAIL;
     try {
-      agent = await Agent.create({
-        clerkId: payload.sub || `google-${crypto.randomUUID()}`,
-        agencyName: isFirstAdmin ? 'Dream Catcher Immigrations' : `Google Agency ${name || ''}`.trim(),
-        ownerName: name || email.split('@')[0],
-        email: cleanEmail,
-        password: randomPassword,
-        mobile: null,
-        gstNumber: isFirstAdmin ? 'N/A' : `GST-PENDING-${Date.now()}`,
-        address: '',
-        city: '',
-        state: '',
-        country: '',
-        role: isFirstAdmin ? 'SUPER_ADMIN' : 'Agent',
-        status: isFirstAdmin ? 'Active' : 'Pending',
-      });
+      if (isFirstAdmin) {
+        const randomPassword = crypto.randomBytes(24).toString('hex') + 'A1!';
+        agent = await Agent.create({
+          clerkId: payload.sub || `google-${crypto.randomUUID()}`,
+          agencyName: 'Dream Catcher Immigrations',
+          ownerName: name || email.split('@')[0],
+          email: cleanEmail,
+          password: randomPassword,
+          mobile: '0000000000',
+          panNumber: 'AAAAA0000A',
+          aadharNumber: '000000000000',
+          address: 'N/A',
+          city: 'N/A',
+          state: 'N/A',
+          country: 'India',
+          role: 'SUPER_ADMIN',
+          status: 'Active',
+        });
+      } else {
+        agent = await Agent.create({
+          clerkId: payload.sub || `google-${crypto.randomUUID()}`,
+          agencyName: `Google Agency ${name || email.split('@')[0]}`.trim(),
+          ownerName: name || email.split('@')[0],
+          email: cleanEmail,
+          role: 'Agent',
+          status: 'ProfileIncomplete',
+        });
+      }
     } catch (error) {
       if (error.code === 11000) {
         res.status(409);
@@ -221,7 +307,82 @@ const googleAuth = async (req, res) => {
   }
 
   const token = generateToken(agent._id);
-  res.json(buildAuthResponse(agent, token));
+  setAuthCookie(res, token);
+  if (agent.status === 'ProfileIncomplete') {
+    return res.status(200).json(buildProfileIncompleteResponse(agent));
+  }
+
+  res.json(buildAuthResponse(agent));
+};
+
+const completeGoogleProfile = async (req, res) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error('Not authorized.');
+  }
+
+  if (req.user.status !== 'ProfileIncomplete') {
+    res.status(400);
+    throw new Error('Profile completion is only available for incomplete Google registrations.');
+  }
+
+  const errors = validateCompleteProfilePayload(req.body);
+  if (Object.keys(errors).length > 0) {
+    return res.status(400).json({ errors });
+  }
+
+  const {
+    agencyName,
+    ownerName,
+    mobile,
+    gstNumber,
+    panNumber,
+    aadharNumber,
+    businessRegNumber,
+    address,
+    city,
+    state,
+    country,
+  } = req.body;
+
+  req.user.agencyName = agencyName.trim();
+  req.user.ownerName = ownerName.trim();
+  req.user.mobile = mobile.trim();
+  req.user.panNumber = panNumber.trim().toUpperCase();
+  req.user.aadharNumber = aadharNumber.trim().replace(/\s+/g, '');
+  req.user.businessRegNumber = businessRegNumber || '';
+  req.user.address = address.trim();
+  req.user.city = city.trim();
+  req.user.state = state.trim();
+  req.user.country = country.trim();
+  req.user.logo = req.file ? req.file.path : req.user.logo;
+  req.user.status = 'Pending';
+
+  if (gstNumber && gstNumber.trim()) {
+    req.user.gstNumber = gstNumber.trim().toUpperCase();
+  } else {
+    req.user.gstNumber = undefined;
+  }
+
+  try {
+    await req.user.save();
+  } catch (error) {
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      return res.status(400).json({
+        message: field === 'gstNumber'
+          ? 'GST Number is already registered.'
+          : 'Profile could not be completed because a unique field already exists.'
+      });
+    }
+    throw error;
+  }
+
+  res.json({
+    message: 'Profile completed successfully. Your agency profile is pending verification.',
+    ...buildAuthResponse(req.user),
+    needsProfileCompletion: false,
+  });
 };
 
 const adminLogin = async (req, res) => {
@@ -244,7 +405,8 @@ const adminLogin = async (req, res) => {
   }
 
   const token = generateToken(agent._id);
-  res.json(buildAuthResponse(agent, token));
+  setAuthCookie(res, token);
+  res.json(buildAuthResponse(agent));
 };
 
 const getProfile = async (req, res) => {
@@ -252,13 +414,20 @@ const getProfile = async (req, res) => {
     res.status(401);
     throw new Error('Not authorized.');
   }
-  res.json(buildAuthResponse(req.user, null));
+  res.json(buildAuthResponse(req.user));
+};
+
+const logout = async (req, res) => {
+  clearAuthCookie(res);
+  res.json({ message: 'Logged out successfully.' });
 };
 
 module.exports = {
   registerAgent,
   loginAgent,
   googleAuth,
+  completeGoogleProfile,
   adminLogin,
   getProfile,
+  logout,
 };

@@ -23,6 +23,19 @@ const notFound = require('./middleware/notFound');
 // Load env vars
 dotenv.config();
 
+const assertProductionEnv = () => {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const requiredEnvVars = ['JWT_SECRET', 'EMAIL_USER', 'EMAIL_PASS'];
+  const missing = requiredEnvVars.filter((name) => !String(process.env[name] || '').trim());
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required production environment variable(s): ${missing.join(', ')}`);
+  }
+};
+
+assertProductionEnv();
+
 const app = express();
 app.disable('x-powered-by');
 
@@ -86,7 +99,7 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type']
   })
 );
 app.use(express.json({ limit: '10mb' }));
@@ -98,7 +111,11 @@ const publicLimiter = rateLimit({
   max: 100,
   message: { message: 'Too many requests, please try again after a minute.' },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req) => [
+    '/api/booking/centers',
+    '/api/booking/emergency-closures'
+  ].includes((req.originalUrl || '').split('?')[0])
 });
 
 const loginLimiter = rateLimit({
@@ -117,12 +134,22 @@ const bookingLimiter = rateLimit({
   legacyHeaders: false
 });
 
+const bookingLookupLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 150,
+  message: { message: 'Too many booking lookup requests, please wait a moment and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // Apply public limiter globally to all API routes
 app.use('/api', publicLimiter);
 
 // Apply specific rate limiters to target endpoints
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth/admin-login', loginLimiter);
+app.use('/api/booking/centers', bookingLookupLimiter);
+app.use('/api/booking/emergency-closures', bookingLookupLimiter);
 app.use('/api/booking/lock', bookingLimiter);
 app.use('/api/booking/payment', bookingLimiter);
 

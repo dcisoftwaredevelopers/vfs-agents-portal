@@ -14,6 +14,8 @@ import { API_ROOT_URL } from '../config/api';
 // ---------------------------------------------------------------------------
 const API_BASE = API_ROOT_URL;
 
+const apiFetch = (url, options = {}) => window.fetch(url, { credentials: 'include', ...options });
+
 const UPI_CONFIG = {
   payeeId: 'dreamintoreality@ptyes',
   payeeName: 'Dream Catcher Immigrations Pvt Ltd',
@@ -167,24 +169,18 @@ export default function AgentDashboard() {
 
   // ---- data fetching -------------------------------------------------
   const authedFetch = useCallback((path) => {
-    if (!user || !user.token) {
-      console.warn('authedFetch called without token. User:', user?.email, 'Has token:', !!user?.token);
-      return Promise.reject(new Error('No auth token available'));
-    }
     const headers = {
-      'Authorization': `Bearer ${user.token}`,
       'Content-Type': 'application/json'
     };
-    console.debug(`Fetching ${path} with token:`, user.token.substring(0, 20) + '...');
-    return fetch(`${API_BASE}${path}`, { headers });
-  }, [user]);
+    return apiFetch(`${API_BASE}${path}`, { headers });
+  }, []);
 
   const fetchSubscriptionDetails = useCallback(async () => {
-    if (!user || !user.token) return;
+    if (!user) return;
     try {
       const res = await authedFetch('/subscription/history');
       if (res.status === 401) {
-        console.error('Unauthorized - token may be expired');
+        console.error('Unauthorized - session may have expired');
         return;
       }
       if (res.ok) {
@@ -199,11 +195,11 @@ export default function AgentDashboard() {
   }, [authedFetch, user]);
 
   const fetchInvoices = useCallback(async () => {
-    if (!user || !user.token) return;
+    if (!user) return;
     try {
       const res = await authedFetch('/subscription/invoices');
       if (res.status === 401) {
-        console.error('Unauthorized - token may be expired');
+        console.error('Unauthorized - session may have expired');
         return;
       }
       if (res.ok) {
@@ -218,11 +214,11 @@ export default function AgentDashboard() {
   }, [authedFetch, user]);
 
   const fetchBookings = useCallback(async () => {
-    if (!user || !user.token) return;
+    if (!user) return;
     try {
       const res = await authedFetch('/booking/history');
       if (res.status === 401) {
-        console.error('Unauthorized - token may be expired');
+        console.error('Unauthorized - session may have expired');
         return;
       }
       if (res.ok) {
@@ -237,11 +233,11 @@ export default function AgentDashboard() {
   }, [authedFetch, user]);
 
   const fetchNotifications = useCallback(async () => {
-    if (!user || !user.token) return;
+    if (!user) return;
     try {
       const res = await authedFetch('/subscription/notifications');
       if (res.status === 401) {
-        console.error('Unauthorized - token may be expired');
+        console.error('Unauthorized - session may have expired');
         return;
       }
       if (res.ok) {
@@ -256,12 +252,11 @@ export default function AgentDashboard() {
   }, [authedFetch, user]);
 
   const redeemFreeBooking = useCallback(async () => {
-    if (!user || !user.token) return;
+    if (!user) return;
     try {
-      const res = await fetch(`${API_BASE}/referral/redeem`, {
+      const res = await apiFetch(`${API_BASE}/referral/redeem`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${user.token}`,
           'Content-Type': 'application/json'
         }
       });
@@ -302,8 +297,7 @@ export default function AgentDashboard() {
 
   const fetchUserProfile = async () => {
     try {
-      const res = await fetch(`${API_ROOT_URL}/auth/me`, {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+      const res = await apiFetch(`${API_ROOT_URL}/auth/me`, {
       });
       if (res.ok) {
         const profile = await res.json();
@@ -416,9 +410,8 @@ export default function AgentDashboard() {
       formData.append('notes', notes);
       formData.append('paymentDateTime', paymentDateTime);
 
-      const res = await fetch(`${API_BASE}/subscription/${endpoint}`, {
+      const res = await apiFetch(`${API_BASE}/subscription/${endpoint}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user.token}` }, // Let browser set Content-Type
         body: formData,
       });
 
@@ -443,15 +436,35 @@ export default function AgentDashboard() {
     }
   };
 
-  const downloadInvoicePDF = (inv) => {
-    if (!inv.pdfData) {
-      alert('Invoice PDF data not loaded.');
+  const downloadInvoicePDF = async (inv) => {
+    if (!inv?._id) {
+      alert('Invoice details are missing. Please refresh and try again.');
       return;
     }
-    const link = document.createElement('a');
-    link.href = `data:application/pdf;base64,${inv.pdfData}`;
-    link.download = `invoice-${inv.invoiceNumber}.pdf`;
-    link.click();
+
+    try {
+      const res = await authedFetch(`/subscription/invoices/${inv._id}/download`);
+      if (!res.ok) {
+        let message = 'Failed to download invoice PDF.';
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          message = data.message || message;
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const pdfUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.download = `invoice-${inv.invoiceNumber || inv._id}.pdf`;
+      link.click();
+      URL.revokeObjectURL(pdfUrl);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+      alert(err.message || 'Could not download invoice PDF. Please try again.');
+    }
   };
 
   const getSubscriptionCycleStatus = () => {

@@ -36,13 +36,13 @@ exports.sendEmail = async (to, subject, htmlContent) => {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-        pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
       }
     });
 
     const mailOptions = {
-      from: `"Dream Catcher Notification" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
+      from: `"Dream Catcher Notification" <${process.env.EMAIL_USER}>`,
       to,
       subject,
       html: htmlContent

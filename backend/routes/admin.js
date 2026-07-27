@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const Appointment = require('../models/Appointment');
 const Agent = require('../models/Agent');
+const Payment = require('../models/Payment');
 const Slot = require('../models/Slot');
 const Center = require('../models/Center');
 const SlotBlock = require('../models/SlotBlock');
@@ -20,8 +21,10 @@ const AgentNotification = require('../models/AgentNotification');
 const mailService = require('../services/mailService');
 const { DEFAULT_SLOTS, isSlotBlocked, getActiveLocksMap } = require('../services/slotAvailabilityService');
 const {
+  buildPaymentProofRiskReview,
   buildSubscriptionVerificationReview,
-  canApproveManualSubscription
+  canApproveManualSubscription,
+  getScreenshotFileHash
 } = require('../services/subscriptionPaymentSecurity');
 
 const SUBSCRIPTION_CYCLE_DAYS = 28;
@@ -75,6 +78,44 @@ const getClientOrigin = (req) => {
   const configuredOrigin = (process.env.CLIENT_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean)[0];
   const requestOrigin = req.headers.origin;
   return configuredOrigin || requestOrigin || 'http://localhost:5173';
+};
+
+const buildSubmittedBeforeScreenshotHashSet = async () => {
+  const [payments, subscriptions] = await Promise.all([
+    Payment.find({ screenshot: { $exists: true, $nin: [null, ''] } })
+      .select('_id screenshot createdAt')
+      .lean(),
+    Subscription.find({ screenshot: { $exists: true, $nin: [null, ''] } })
+      .select('_id screenshot createdAt')
+      .lean(),
+  ]);
+
+  const submissionsByHash = new Map();
+  const addSubmission = (kind, item) => {
+    const screenshotFileHash = getScreenshotFileHash(item.screenshot);
+    if (!screenshotFileHash) return;
+    if (!submissionsByHash.has(screenshotFileHash)) submissionsByHash.set(screenshotFileHash, []);
+    submissionsByHash.get(screenshotFileHash).push({
+      kind,
+      id: String(item._id),
+      createdAt: item.createdAt ? new Date(item.createdAt).getTime() : 0,
+    });
+  };
+
+  payments.forEach((payment) => addSubmission('appointmentPayment', payment));
+  subscriptions.forEach((subscription) => addSubmission('subscriptionPayment', subscription));
+  return submissionsByHash;
+};
+
+const wasScreenshotHashSubmittedBefore = (submissionsByHash, kind, item) => {
+  const screenshotFileHash = getScreenshotFileHash(item?.screenshot);
+  if (!screenshotFileHash) return false;
+
+  const currentCreatedAt = item.createdAt ? new Date(item.createdAt).getTime() : Date.now();
+  return (submissionsByHash.get(screenshotFileHash) || []).some((submission) => {
+    if (submission.kind === kind && submission.id === String(item._id)) return false;
+    return !submission.createdAt || submission.createdAt <= currentCreatedAt;
+  });
 };
 
 const logAuditAction = async (req, action, entityType, entityId, oldValue, newValue) => {
@@ -2152,7 +2193,6 @@ router.get('/payments-verification', protect, authorize('SUPER_ADMIN', 'CENTER_M
       .limit(limit)
       .lean();
 
-    const Payment = require('../models/Payment');
     const payments = await Payment.find({ appointmentId: { $in: appointments.map(a => a._id) } }).sort({ createdAt: -1 }).lean();
     const paymentByAppointmentId = new Map();
     payments.forEach((payment) => {
@@ -2160,10 +2200,22 @@ router.get('/payments-verification', protect, authorize('SUPER_ADMIN', 'CENTER_M
       if (!paymentByAppointmentId.has(key)) paymentByAppointmentId.set(key, payment);
     });
 
-    const result = appointments.map((appt) => ({
-      appointment: appt,
-      payment: paymentByAppointmentId.get(String(appt._id)) || null,
-    }));
+    const submissionsByHash = await buildSubmittedBeforeScreenshotHashSet();
+    const result = appointments.map((appt) => {
+      const payment = paymentByAppointmentId.get(String(appt._id)) || null;
+      const verificationReview = payment
+        ? buildPaymentProofRiskReview({
+          transactionId: payment.transactionId,
+          screenshot: payment.screenshot,
+          duplicateScreenshotFound: wasScreenshotHashSubmittedBefore(submissionsByHash, 'appointmentPayment', payment),
+        })
+        : null;
+
+      return {
+        appointment: appt,
+        payment: payment ? { ...payment, verificationReview } : null,
+      };
+    });
 
     const totalPages = Math.ceil(total / limit) || 1;
     res.json({ data: result, total, page, totalPages });
@@ -2192,7 +2244,6 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
     const center = await Center.findById(appointment.centerId);
 
     // Find and update the associated Payment document
-    const Payment = require('../models/Payment');
     const payment = await Payment.findOne({ appointmentId: appointment._id }).sort({ createdAt: -1 });
     if (payment) {
       payment.status = 'SUCCESS';
@@ -2271,16 +2322,7 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
     // Generate PDF Confirmation Buffer
     const pdfService = require('../services/pdfService');
     const pdfBuffer = await pdfService.generateConfirmationPDF(appointment, payment, slot, center);
-
-    // Send confirmation email
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-        pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
-      }
-    });
+    let confirmationEmailSent = false;
 
     const applicantEmail = appointment.applicantDetails && appointment.applicantDetails[0]
       ? appointment.applicantDetails[0].email
@@ -2291,9 +2333,21 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
     if (userEmail && userEmail !== applicantEmail) {
       recipients.push(userEmail);
     }
+    console.log('[admin route approve payment] Email recipients:', {
+      appointmentId: appointment._id?.toString(),
+      referenceNumber: appointment.referenceNumber,
+      applicantEmail,
+      userEmail,
+      recipients,
+    });
+    console.log('[admin route approve payment] Confirmation PDF attachment size:', {
+      appointmentId: appointment._id?.toString(),
+      referenceNumber: appointment.referenceNumber,
+      bytes: Buffer.isBuffer(pdfBuffer) ? pdfBuffer.length : null,
+      isBuffer: Buffer.isBuffer(pdfBuffer),
+    });
 
     // const mailOptions = {
-    //   from: `"Dream Catcher Immigrations" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
     //   to: recipients.join(', '),
     //   subject: 'Appointment Confirmation – Dream Catcher Immigrations',
     //   html: `
@@ -2416,8 +2470,7 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
     })} at ${appointment.bookingTime}`;
 
     const mailOptions = {
-      from: `"Info on ${countryName} Visa in India" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
-      to: recipients.join(', '),
+      to: recipients,
       subject: `Manual Appointment - ${centerCity} - ${countryName}`,
       html: `
         <div style="font-family: Georgia, 'Times New Roman', serif; color: #000; max-width: 760px; margin: 0 auto; padding: 24px 18px; font-size: 18px; line-height: 1.08;">
@@ -2475,9 +2528,25 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
         }
       ]
     };
-    await transporter.sendMail(mailOptions);
+    try {
+      await mailService.sendMail(mailOptions, `Info on ${countryName} Visa in India`);
+      confirmationEmailSent = true;
+    } catch (mailError) {
+      console.error('[admin route approve payment] Confirmation email delivery failed:', {
+        referenceNumber: appointment.referenceNumber,
+        appointmentId: appointment._id?.toString(),
+        recipients,
+        message: mailError.message,
+        details: mailError.details || mailError,
+      });
+    }
 
-    res.json({ message: 'Appointment approved and confirmation email sent.' });
+    res.json({
+      message: confirmationEmailSent
+        ? 'Payment approved and confirmation email sent.'
+        : 'Payment approved. Email delivery could not be confirmed.',
+      emailSent: confirmationEmailSent,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -2556,16 +2625,6 @@ router.post('/payments-verification/:id/reject', protect, authorize('SUPER_ADMIN
       });
     }
 
-    // Send rejection email
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-        pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
-      }
-    });
-
     const applicantEmail = appointment.applicantDetails && appointment.applicantDetails[0]
       ? appointment.applicantDetails[0].email
       : appointment.userId.email;
@@ -2577,7 +2636,6 @@ router.post('/payments-verification/:id/reject', protect, authorize('SUPER_ADMIN
     }
 
     const mailOptions = {
-      from: `"Dream Catcher Immigrations" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
       to: recipients.join(', '),
       subject: 'Payment Verification Unsuccessful – Dream Catcher Immigrations',
       html: `
@@ -2605,7 +2663,7 @@ router.post('/payments-verification/:id/reject', protect, authorize('SUPER_ADMIN
       `
     };
 
-    await transporter.sendMail(mailOptions);
+    await mailService.sendMail(mailOptions, 'Dream Catcher Immigrations');
 
     res.json({ message: 'Appointment payment verification rejected and email notification sent.' });
   } catch (error) {
@@ -3259,10 +3317,25 @@ router.get('/subscription-payments', protect, authorize('SUPER_ADMIN'), async (r
       .limit(limit)
       .lean();
 
-    const data = list.map((item) => ({
-      ...item,
-      verificationReview: buildSubscriptionVerificationReview(item)
-    }));
+    const submissionsByHash = await buildSubmittedBeforeScreenshotHashSet();
+    const data = list.map((item) => {
+      const baseReview = buildSubscriptionVerificationReview(item);
+      const riskReview = buildPaymentProofRiskReview({
+        transactionId: item.normalizedTransactionId || item.transactionId,
+        screenshot: item.screenshot,
+        duplicateScreenshotFound: wasScreenshotHashSubmittedBefore(submissionsByHash, 'subscriptionPayment', item),
+      });
+
+      return {
+        ...item,
+        verificationReview: {
+          ...baseReview,
+          screenshotFileHash: riskReview.screenshotFileHash,
+          flags: riskReview.flags,
+          warnings: [...new Set([...(baseReview.warnings || []), ...riskReview.warnings])],
+        }
+      };
+    });
 
     const totalPages = Math.ceil(total / limit) || 1;
     res.json({ data, total, page, totalPages });
@@ -3276,10 +3349,8 @@ router.post('/subscription-payments/:id/approve', protect, authorize('SUPER_ADMI
   try {
     const Subscription = require('../models/Subscription');
     const Invoice = require('../models/Invoice');
-    const Payment = require('../models/Payment');
     const RenewalHistory = require('../models/RenewalHistory');
     const AgentNotification = require('../models/AgentNotification');
-    const nodemailer = require('nodemailer');
     const pdfService = require('../services/pdfService');
 
     const sub = await Subscription.findById(req.params.id);
@@ -3391,16 +3462,7 @@ router.post('/subscription-payments/:id/approve', protect, authorize('SUPER_ADMI
 
     // Send confirmation email
     try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-          pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
-        }
-      });
-
       const mailOptions = {
-        from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
         to: agent.email,
         subject: 'Visa Booking Portal - Subscription Activated',
         html: `
@@ -3432,7 +3494,7 @@ router.post('/subscription-payments/:id/approve', protect, authorize('SUPER_ADMI
         }];
       }
 
-      await transporter.sendMail(mailOptions);
+      await mailService.sendMail(mailOptions, 'Dream Catcher SaaS Billing');
     } catch (emailErr) {
       console.error('Failed to send confirmation email:', emailErr.message);
     }
@@ -3454,8 +3516,6 @@ router.post('/subscription-payments/:id/reject', protect, authorize('SUPER_ADMIN
   try {
     const Subscription = require('../models/Subscription');
     const AgentNotification = require('../models/AgentNotification');
-    const nodemailer = require('nodemailer');
-
     const sub = await Subscription.findById(req.params.id);
     if (!sub) return res.status(404).json({ message: 'Subscription request not found' });
     if (sub.subscriptionStatus === 'Active') {
@@ -3490,16 +3550,7 @@ router.post('/subscription-payments/:id/reject', protect, authorize('SUPER_ADMIN
 
     // Send email notice
     try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com',
-          pass: process.env.EMAIL_PASS || 'csiz fkyl mnxu tfap'
-        }
-      });
-
-      await transporter.sendMail({
-        from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER || 'dreamcatcherimmigration25@gmail.com'}>`,
+      await mailService.sendMail({
         to: agent.email,
         subject: 'Visa Booking Portal - Subscription Payment Rejected',
         html: `
@@ -3515,7 +3566,7 @@ router.post('/subscription-payments/:id/reject', protect, authorize('SUPER_ADMIN
             <p style="font-size: 11px; color: #94a3b8; text-align: center;">This is an automated billing email. Please do not reply.</p>
           </div>
         `
-      });
+      }, 'Dream Catcher SaaS Billing');
     } catch (emailErr) {
       console.error('Failed to send rejection email:', emailErr.message);
     }

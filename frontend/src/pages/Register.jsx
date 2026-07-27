@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Building2, User, Mail, Phone, MapPin, ShieldCheck, FileText, Lock, Eye, EyeOff, Upload } from 'lucide-react';
 import { API_BASE_URL } from '../features/apiSlice';
 
+const apiFetch = (url, options = {}) => window.fetch(url, { credentials: 'include', ...options });
+
 export default function Register() {
   const [agencyName, setAgencyName] = useState('');
   const [ownerName, setOwnerName] = useState('');
@@ -35,7 +37,9 @@ export default function Register() {
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('userInfo'));
     if (user) {
-      if (user.role === 'SUPER_ADMIN') {
+      if (user.needsProfileCompletion || user.status === 'ProfileIncomplete') {
+        navigate('/complete-profile');
+      } else if (user.role === 'SUPER_ADMIN') {
         navigate('/admin-dashboard');
       } else {
         navigate('/agent-dashboard');
@@ -155,7 +159,7 @@ export default function Register() {
         console.log('Appending logo file to FormData:', logo.name);
       }
 
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+      const res = await apiFetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         body: formData // Send FormData instead of JSON
       });
@@ -493,3 +497,5 @@ export default function Register() {
     </div>
   );
 }
+
+

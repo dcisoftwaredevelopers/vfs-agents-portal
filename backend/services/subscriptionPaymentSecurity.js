@@ -1,6 +1,8 @@
 const MAX_PAYMENT_AGE_DAYS = 7;
 const FUTURE_GRACE_MINUTES = 10;
 const TRANSACTION_ID_PATTERN = /^[A-Z0-9]{8,35}$/;
+const UPI_REFERENCE_NUMBER_PATTERN = /^\d{12}$/;
+const crypto = require('crypto');
 
 function normalizeTransactionId(value) {
   return String(value || '')
@@ -53,6 +55,56 @@ function validatePaymentProof({ transactionId, paymentDateTime, screenshot }) {
   };
 }
 
+function normalizeScreenshotForHash(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  if (raw.startsWith('data:')) {
+    const commaIndex = raw.indexOf(',');
+    return commaIndex >= 0 ? raw.slice(commaIndex + 1).replace(/\s+/g, '') : raw;
+  }
+
+  try {
+    const url = new URL(raw);
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch (error) {
+    return raw.replace(/\s+/g, '');
+  }
+}
+
+function getScreenshotFileHash(screenshot) {
+  const normalizedScreenshot = normalizeScreenshotForHash(screenshot);
+  if (!normalizedScreenshot) return null;
+  return crypto.createHash('sha256').update(normalizedScreenshot).digest('hex');
+}
+
+function buildPaymentProofRiskReview({ transactionId, screenshot, duplicateScreenshotFound = false }) {
+  const warnings = [];
+  const normalizedTransactionId = normalizeTransactionId(transactionId);
+  const screenshotFileHash = getScreenshotFileHash(screenshot);
+  const invalidUpiReferenceFormat = !!normalizedTransactionId && !UPI_REFERENCE_NUMBER_PATTERN.test(normalizedTransactionId);
+
+  if (duplicateScreenshotFound) {
+    warnings.push('Same payment proof screenshot file hash was submitted before. Verify this proof carefully before approval.');
+  }
+
+  if (invalidUpiReferenceFormat) {
+    warnings.push('UPI reference number should be a 12-digit UPI/RRN reference. Submitted value does not match that pattern.');
+  }
+
+  return {
+    screenshotFileHash,
+    normalizedTransactionId,
+    flags: {
+      duplicateScreenshotFileHash: duplicateScreenshotFound,
+      invalidUpiReferenceFormat,
+    },
+    warnings,
+  };
+}
+
 function buildSubscriptionVerificationReview(subscription) {
   const warnings = [...(subscription.verificationWarnings || [])];
   if (!subscription.normalizedTransactionId) warnings.push('Missing normalized UTR reference.');
@@ -90,6 +142,8 @@ function canApproveManualSubscription(subscription) {
 module.exports = {
   normalizeTransactionId,
   validatePaymentProof,
+  getScreenshotFileHash,
+  buildPaymentProofRiskReview,
   buildSubscriptionVerificationReview,
   canApproveManualSubscription,
 };

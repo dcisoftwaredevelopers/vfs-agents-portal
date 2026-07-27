@@ -9,8 +9,10 @@ const {
   registerAgent,
   loginAgent,
   googleAuth,
+  completeGoogleProfile,
   adminLogin,
   getProfile,
+  logout,
 } = require('../controllers/authController');
 
 // ADDED: rate limiters placed before validation/controller so brute-force
@@ -18,7 +20,9 @@ const {
 router.post('/register', registerLimiter, upload.single('logo'), validateAgentRegister, asyncHandler(registerAgent));
 router.post('/login', loginLimiter, validateLogin, asyncHandler(loginAgent));
 router.post('/google', loginLimiter, asyncHandler(googleAuth));
+router.put('/complete-profile', protect, upload.single('logo'), asyncHandler(completeGoogleProfile));
 router.post('/admin-login', adminLoginLimiter, asyncHandler(adminLogin));
+router.post('/logout', asyncHandler(logout));
 router.get('/me', protect, asyncHandler(getProfile));
 
 // Update user language preference

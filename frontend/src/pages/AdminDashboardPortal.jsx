@@ -24,7 +24,7 @@ export default function AdminDashboardPortal() {
     isError,
     error,
     refetch,
-  } = useGetUsersQuery(undefined, { skip: !admin?.token });
+  } = useGetUsersQuery(undefined, { skip: !admin });
 
   const users = isError ? MOCK_USERS : (fetchedUsers || []);
 
