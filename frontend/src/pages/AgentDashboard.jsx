@@ -26,6 +26,8 @@ const SUBSCRIPTION_PLAN_AMOUNT = 10000;
 const SUBSCRIPTION_GST_RATE = 0.18;
 const SUBSCRIPTION_CYCLE_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const NOTIFICATIONS_PAGE_SIZE = 5;
+const READ_NOTIFICATIONS_STORAGE_KEY = 'readNotificationIds';
 
 function getSubscriptionPricing(discountEligible) {
   const discountAmount = discountEligible ? +(SUBSCRIPTION_PLAN_AMOUNT * 0.10).toFixed(2) : 0;
@@ -59,6 +61,12 @@ const NAV_ITEMS = [
   { key: 'billing', label: 'Invoices & Billing', icon: FileText },
   { key: 'notifications', label: 'Alerts & Notifications', icon: Bell },
 ];
+
+// ---------------------------------------------------------------------------
+// Date helpers (used by the notifications date filter)
+// ---------------------------------------------------------------------------
+const getDateKey = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 // ---------------------------------------------------------------------------
 // Small reusable pieces (previously duplicated inline)
@@ -153,6 +161,15 @@ export default function AgentDashboard() {
   const [invoices, setInvoices] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [notificationsPage, setNotificationsPage] = useState(1);
+  const [readNotificationIds, setReadNotificationIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(READ_NOTIFICATIONS_STORAGE_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [notificationsDateFilter, setNotificationsDateFilter] = useState(() => getDateKey(new Date()));
 
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -166,6 +183,45 @@ export default function AgentDashboard() {
   const [modalLoading, setModalLoading] = useState(false);
   const [accessAlertModal, setAccessAlertModal] = useState(null); // null | 'NoSub' | 'Pending' | 'Expired'
   const subscriptionPricing = getSubscriptionPricing(user?.discountEligible === true);
+
+  // ---- notifications: unread count + date filter + pagination --------
+  const unreadNotificationsCount = notifications.filter((n) => !readNotificationIds.includes(n._id)).length;
+
+  const notificationsForSelectedDate = notifications.filter(
+    (n) => n.createdAt && getDateKey(new Date(n.createdAt)) === notificationsDateFilter
+  );
+
+  const totalNotificationPages = Math.max(1, Math.ceil(notificationsForSelectedDate.length / NOTIFICATIONS_PAGE_SIZE));
+  const paginatedNotifications = notificationsForSelectedDate.slice(
+    (notificationsPage - 1) * NOTIFICATIONS_PAGE_SIZE,
+    notificationsPage * NOTIFICATIONS_PAGE_SIZE
+  );
+  const isViewingToday = notificationsDateFilter === getDateKey(new Date());
+
+  const markAllNotificationsAsRead = useCallback(() => {
+    if (notifications.length === 0) return;
+    setReadNotificationIds((prev) => {
+      const ids = notifications.map((n) => n._id);
+      const merged = Array.from(new Set([...prev, ...ids]));
+      if (merged.length === prev.length) return prev; // nothing new, skip re-render/write
+      localStorage.setItem(READ_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(merged));
+      return merged;
+    });
+  }, [notifications]);
+
+  // Reset to page 1 whenever the alerts tab is opened, and mark everything
+  // currently loaded as read so the sidebar badge count clears.
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      setNotificationsPage(1);
+      markAllNotificationsAsRead();
+    }
+  }, [activeTab, markAllNotificationsAsRead]);
+
+  // Reset to page 1 whenever the selected notifications date changes.
+  useEffect(() => {
+    setNotificationsPage(1);
+  }, [notificationsDateFilter]);
 
   // ---- data fetching -------------------------------------------------
   const authedFetch = useCallback((path) => {
@@ -648,13 +704,13 @@ export default function AgentDashboard() {
                   }}
                 >
                   <Icon size={18} /> {label}
-                  {key === 'notifications' && notifications.length > 0 && (
+                  {key === 'notifications' && unreadNotificationsCount > 0 && (
                     <span style={{
                       position: 'absolute', right: '20px', backgroundColor: COLORS.red, color: '#fff',
                       borderRadius: '50%', width: '18px', height: '18px', fontSize: '10px',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold',
                     }}>
-                      {notifications.length}
+                      {unreadNotificationsCount}
                     </span>
                   )}
                 </button>
@@ -954,26 +1010,133 @@ export default function AgentDashboard() {
 
           {activeTab === 'notifications' && (
             <div className="glass-card-premium animate-fadein" style={{ padding: '30px', border: '1px solid rgba(12, 35, 64, 0.08)' }}>
-              <h3 style={styles.sectionTitle}>System Alerts & Notifications</h3>
-
-              {notifications.length === 0 ? (
-                <EmptyState>No alerts or notifications.</EmptyState>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                  {notifications.map((n) => (
-                    <div key={n._id} style={{
-                      border: `1px solid ${COLORS.border}`, padding: '15px 20px', borderRadius: '4px',
-                      backgroundColor: COLORS.bgSoft, display: 'flex', gap: '15px', alignItems: 'flex-start',
-                    }}>
-                      <span style={{ fontSize: '20px' }}>🔔</span>
-                      <div>
-                        <h4 style={{ margin: '0 0 5px 0', color: COLORS.navy, fontWeight: 'bold', fontSize: '14px' }}>{n.title}</h4>
-                        <p style={{ margin: '0 0 5px 0', fontSize: '13px', color: '#555', lineHeight: '1.5' }}>{n.message}</p>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(n.createdAt).toLocaleString('en-GB')}</span>
-                      </div>
-                    </div>
-                  ))}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                flexWrap: 'wrap', gap: '15px', marginBottom: '25px',
+              }}>
+                <div>
+                  <h3 style={{ ...styles.sectionTitle, marginBottom: '4px' }}>System Alerts & Notifications</h3>
+                  <p style={{ margin: 0, fontSize: '13px', color: COLORS.slate }}>
+                    {notificationsForSelectedDate.length} alert{notificationsForSelectedDate.length === 1 ? '' : 's'} on{' '}
+                    {new Date(notificationsDateFilter).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
                 </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {!isViewingToday && (
+                    <button
+                      type="button"
+                      onClick={() => setNotificationsDateFilter(getDateKey(new Date()))}
+                      style={{
+                        padding: '9px 14px', borderRadius: '6px', border: `1px solid ${COLORS.gold}`,
+                        backgroundColor: 'rgba(223,160,21,0.08)', color: COLORS.navy, fontWeight: '700',
+                        fontSize: '13px', cursor: 'pointer',
+                      }}
+                    >
+                      Today
+                    </button>
+                  )}
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={notificationsDateFilter}
+                    max={getDateKey(new Date())}
+                    onChange={(e) => setNotificationsDateFilter(e.target.value)}
+                    style={{ width: 'auto', padding: '9px 12px', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              {notificationsForSelectedDate.length === 0 ? (
+                <EmptyState>
+                  No alerts on {new Date(notificationsDateFilter).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.
+                  {!isViewingToday && (
+                    <div style={{ marginTop: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationsDateFilter(getDateKey(new Date()))}
+                        style={{ background: 'none', border: 'none', color: COLORS.gold, fontWeight: '700', cursor: 'pointer', fontSize: '13px' }}
+                      >
+                        Jump to today →
+                      </button>
+                    </div>
+                  )}
+                </EmptyState>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {paginatedNotifications.map((n) => {
+                      const isUnread = !readNotificationIds.includes(n._id);
+                      return (
+                        <div
+                          key={n._id}
+                          style={{
+                            display: 'flex', gap: '15px', alignItems: 'flex-start',
+                            padding: '16px 18px', borderRadius: '8px',
+                            border: `1px solid ${isUnread ? 'rgba(223,160,21,0.35)' : COLORS.border}`,
+                            backgroundColor: isUnread ? 'rgba(223,160,21,0.05)' : '#ffffff',
+                            transition: 'border-color 0.2s, background-color 0.2s',
+                          }}
+                        >
+                          <div style={{
+                            flexShrink: 0, width: '38px', height: '38px', borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: isUnread ? COLORS.gold : '#e2e8f0',
+                            color: isUnread ? COLORS.navy : COLORS.slate,
+                          }}>
+                            <Bell size={17} />
+                          </div>
+                          <div style={{ flexGrow: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <h4 style={{ margin: 0, color: COLORS.navy, fontWeight: '700', fontSize: '14px' }}>{n.title}</h4>
+                              {isUnread && (
+                                <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: COLORS.gold, flexShrink: 0 }} />
+                              )}
+                            </div>
+                            <p style={{ margin: '0 0 6px 0', fontSize: '13px', color: '#555', lineHeight: '1.5' }}>{n.message}</p>
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                              {new Date(n.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {totalNotificationPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px', marginTop: '25px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationsPage((p) => Math.max(1, p - 1))}
+                        disabled={notificationsPage === 1}
+                        style={{
+                          padding: '8px 16px', borderRadius: '6px', border: `1px solid ${COLORS.border}`,
+                          backgroundColor: '#fff', color: COLORS.navy, fontWeight: '600', fontSize: '13px',
+                          cursor: notificationsPage === 1 ? 'not-allowed' : 'pointer',
+                          opacity: notificationsPage === 1 ? 0.5 : 1,
+                        }}
+                      >
+                        Previous
+                      </button>
+                      <span style={{ fontSize: '13px', color: COLORS.slate, fontWeight: '600' }}>
+                        Page {notificationsPage} of {totalNotificationPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationsPage((p) => Math.min(totalNotificationPages, p + 1))}
+                        disabled={notificationsPage === totalNotificationPages}
+                        style={{
+                          padding: '8px 16px', borderRadius: '6px', border: `1px solid ${COLORS.border}`,
+                          backgroundColor: '#fff', color: COLORS.navy, fontWeight: '600', fontSize: '13px',
+                          cursor: notificationsPage === totalNotificationPages ? 'not-allowed' : 'pointer',
+                          opacity: notificationsPage === totalNotificationPages ? 0.5 : 1,
+                        }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
