@@ -340,7 +340,7 @@ exports.getStats = async (req, res) => {
 exports.deleteagents = async (req, res) => {
   try {
     const agentId = req.params.id;
-    if (!mongoose.types.ObjectId.isValid(agentId)) {
+    if (!mongoose.Types.ObjectId.isValid(agentId)) {
       return res.status(400).json({ message: 'Invalid agent ID' });
     }
 
@@ -360,10 +360,10 @@ exports.deleteagents = async (req, res) => {
     }
 
     // Soft delete: after for production, preserves audit trial and historical data
-    agent.status = 'Deleted'
-    agent.deletedAt = new Date(),
-      agent.deletedBy = req.user._id;
-    await agent.save();
+    agent.status = 'Deleted';
+    agent.deletedAt = new Date();
+    agent.deletedBy = req.user._id;
+    await agent.save({ validateBeforeSave: false });
 
     await AuditLog.create({
       action: 'DELETE_AGENT',

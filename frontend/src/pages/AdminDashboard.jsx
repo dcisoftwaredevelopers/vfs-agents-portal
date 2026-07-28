@@ -1303,6 +1303,34 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeleteAgent = async (agent) => {
+    if (!user || !agent?._id) return;
+
+    const displayName = agent.agencyName || agent.ownerName || agent.email || 'this agent';
+    if (!window.confirm(`Delete ${displayName}? This will mark the agent as deleted and cannot be used if they have active appointments.`)) {
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/agents/agents/${agent._id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || 'Agent delete failed.');
+        return;
+      }
+
+      alert(data.message || 'Agent deleted successfully.');
+      setAgents((prevAgents) => prevAgents.filter((item) => item._id !== agent._id));
+      fetchAgentsAndSaaSStats();
+    } catch (err) {
+      console.error(err);
+      alert('Network error while deleting agent.');
+    }
+  };
+
   const handleUpdateDailyLimit = async (agentId) => {
     if (!user) return;
 
@@ -2364,6 +2392,15 @@ export default function AdminDashboard() {
                                   style={{ padding: '4px 10px', fontSize: '11px', backgroundColor: '#e2e8f0', color: '#0c2340', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                   Suspend Billing
+                                </button>
+                              )}
+                              {agent.status !== 'Deleted' && (
+                                <button
+                                  onClick={() => handleDeleteAgent(agent)}
+                                  className="btn"
+                                  style={{ padding: '4px 10px', fontSize: '11px', backgroundColor: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                  Delete
                                 </button>
                               )}
                             </div>
