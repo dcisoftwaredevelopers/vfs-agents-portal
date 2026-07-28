@@ -530,46 +530,6 @@ export default function GlobalHome() {
             })}
           </div>
 
-          {/* Tab Buttons */}
-          <div 
-            className="glass-card-premium"
-            style={{ 
-              display: 'flex', 
-              justifyContent: 'center', 
-              gap: '10px', 
-              flexWrap: 'wrap', 
-              marginBottom: '35px',
-              padding: '10px',
-              border: '1px solid rgba(12, 35, 64, 0.05)'
-            }}
-          >
-            {Object.keys(COUNTRY_VISA_GUIDES).map((country) => (
-              <button
-                key={country}
-                onClick={() => setActiveCountryTab(country)}
-                style={{
-                  padding: '10px 18px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  fontSize: '14px',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-                  backgroundColor: activeCountryTab === country ? '#0c2340' : 'transparent',
-                  color: activeCountryTab === country ? '#ffffff' : '#64748b',
-                  transform: activeCountryTab === country ? 'scale(1.05)' : 'scale(1)',
-                  boxShadow: activeCountryTab === country ? '0 4px 12px rgba(12, 35, 64, 0.15)' : 'none'
-                }}
-              >
-                <span>{COUNTRY_VISA_GUIDES[country].flag}</span>
-                <span>{country}</span>
-              </button>
-            ))}
-          </div>
-
           {/* Tab Content Card */}
           <div 
             className="glass-card-premium animate-fadein"
