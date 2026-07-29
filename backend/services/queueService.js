@@ -1,6 +1,10 @@
 const { Queue } = require('bullmq');
 const Redis = require('ioredis');
 const mongoose = require('mongoose');
+const {
+  getFormattedEmailSender,
+  removeLegacyEmailBranding,
+} = require('../config/emailBranding');
 const Appointment = require('../models/Appointment');
 const Slot = require('../models/Slot');
 const SlotLock = require('../models/SlotLock');
@@ -136,9 +140,9 @@ exports.initQueueService = (io) => {
             });
 
             const mailOptions = {
-              from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER}>`,
+              from: getFormattedEmailSender(),
               to: agent.email,
-              subject: 'URGENT: Visa Booking Subscription Expired',
+              subject: removeLegacyEmailBranding('URGENT: Visa Booking Subscription Expired'),
               html: `
                 <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #fee2e2; border-radius: 8px;">
                   <h2 style="color: #b91c1c; border-bottom: 2px solid #ef4444; padding-bottom: 10px;">Subscription Expired</h2>
@@ -150,6 +154,7 @@ exports.initQueueService = (io) => {
                 </div>
               `
             };
+            mailOptions.html = removeLegacyEmailBranding(mailOptions.html);
             await transporter.sendMail(mailOptions);
             console.log(`Email subscription expired notice sent to ${agent.email}`);
           } catch (mailErr) {
@@ -202,9 +207,9 @@ exports.initQueueService = (io) => {
             });
 
             const mailOptions = {
-              from: `"Dream Catcher SaaS Billing" <${process.env.EMAIL_USER}>`,
+              from: getFormattedEmailSender(),
               to: agent.email,
-              subject: subjectText,
+              subject: removeLegacyEmailBranding(subjectText),
               html: `
                 <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
                   <h2 style="color: #0c2340; border-bottom: 2px solid #dfa015; padding-bottom: 10px;">Subscription Renewal Reminder</h2>
@@ -217,6 +222,7 @@ exports.initQueueService = (io) => {
                 </div>
               `
             };
+            mailOptions.html = removeLegacyEmailBranding(mailOptions.html);
             await transporter.sendMail(mailOptions);
             console.log(`Sent renewal reminder (${label}) to ${agent.email}`);
           } catch (mailErr) {
