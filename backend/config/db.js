@@ -14,6 +14,38 @@
 
 const mongoose = require('mongoose');
 
+const ATLAS_SRV_FALLBACKS = {
+  'cluster0.rxdrx7g.mongodb.net': {
+    hosts: [
+      'ac-9ue6fnd-shard-00-00.rxdrx7g.mongodb.net:27017',
+      'ac-9ue6fnd-shard-00-01.rxdrx7g.mongodb.net:27017',
+      'ac-9ue6fnd-shard-00-02.rxdrx7g.mongodb.net:27017'
+    ],
+    replicaSet: 'atlas-12bbhd-shard-0'
+  }
+};
+
+const buildAtlasSeedListUri = (srvUri) => {
+  const match = srvUri.match(/^mongodb\+srv:\/\/([^@]+)@([^/?]+)(\/[^?]*)?(\?.*)?$/);
+  if (!match) return null;
+
+  const [, credentials, hostname, pathname = '/', queryString = ''] = match;
+  const fallback = ATLAS_SRV_FALLBACKS[hostname.toLowerCase()];
+  if (!fallback) return null;
+
+  const params = new URLSearchParams(queryString.replace(/^\?/, ''));
+  params.set('tls', 'true');
+  params.set('authSource', params.get('authSource') || 'admin');
+  params.set('replicaSet', fallback.replicaSet);
+
+  return `mongodb://${credentials}@${fallback.hosts.join(',')}${pathname}?${params.toString()}`;
+};
+
+const isSrvDnsFailure = (error) =>
+  error?.code === 'ECONNREFUSED' ||
+  error?.code === 'ETIMEOUT' ||
+  /querySrv|resolveSrv/i.test(error?.message || '');
+
 const readPositiveIntEnv = (name, fallback) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -76,8 +108,11 @@ const ensurePerformanceIndexes = async () => {
 const connectDB = async () => {
   try {
     const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/vfs_global';
+    const windowsSeedListUri = process.platform === 'win32'
+      ? buildAtlasSeedListUri(mongoUri)
+      : null;
 
-    const conn = await mongoose.connect(mongoUri, {
+    const connectionOptions = {
       serverSelectionTimeoutMS: readPositiveIntEnv('MONGO_SERVER_SELECTION_TIMEOUT_MS', 5000),
       connectTimeoutMS: readPositiveIntEnv('MONGO_CONNECT_TIMEOUT_MS', 10000),
       socketTimeoutMS: readPositiveIntEnv('MONGO_SOCKET_TIMEOUT_MS', 30000),
@@ -87,7 +122,21 @@ const connectDB = async () => {
       heartbeatFrequencyMS: readPositiveIntEnv('MONGO_HEARTBEAT_FREQUENCY_MS', 10000),
       retryWrites: true,
       retryReads: true,
-    });
+    };
+
+    let conn;
+    try {
+      if (windowsSeedListUri) {
+        console.warn('Using Atlas seed hosts because SRV DNS is unavailable in Node on this Windows network.');
+      }
+      conn = await mongoose.connect(windowsSeedListUri || mongoUri, connectionOptions);
+    } catch (error) {
+      const seedListUri = buildAtlasSeedListUri(mongoUri);
+      if (windowsSeedListUri || !seedListUri || !isSrvDnsFailure(error)) throw error;
+
+      console.warn('MongoDB SRV DNS lookup failed; retrying with Atlas seed hosts.');
+      conn = await mongoose.connect(seedListUri, connectionOptions);
+    }
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);
     ensureOptionalGstIndex();

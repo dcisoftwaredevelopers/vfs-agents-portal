@@ -17,7 +17,14 @@ const { logAuditAction } = require('../services/auditService');
 const mailService = require('../services/mailService');
 const socketService = require('../services/socketService');
 const { isSlotBlocked, DEFAULT_SLOTS, getActiveLocksMap } = require('../services/slotAvailabilityService');
-const { buildAppointmentConfirmationHtml, buildPaymentRejectedHtml, buildSubscriptionActivatedHtml, buildSubscriptionRejectedHtml } = require('../services/Emailtemplates');
+const {
+  APPOINTMENT_CONFIRMATION_SENDER_NAME,
+  APPOINTMENT_CONFIRMATION_SUBJECT,
+  buildAppointmentConfirmationHtml,
+  buildPaymentRejectedHtml,
+  buildSubscriptionActivatedHtml,
+  buildSubscriptionRejectedHtml
+} = require('../services/Emailtemplates');
 const {
   buildSubscriptionVerificationReview,
   canApproveManualSubscription
@@ -933,11 +940,11 @@ exports.approvePaymentVerification = [
     await sendMailSafely(
       {
         to: recipients.join(', '),
-        subject: 'Appointment Confirmation – Dream Catcher Immigrations',
+        subject: APPOINTMENT_CONFIRMATION_SUBJECT,
         html: buildAppointmentConfirmationHtml({ appointment, center }),
         attachments: [{ filename: `Appointment_Confirmation_${appointment.referenceNumber}.pdf`, content: pdfBuffer }],
       },
-      'Dream Catcher Immigrations'
+      APPOINTMENT_CONFIRMATION_SENDER_NAME
     );
 
     res.json({ message: 'Appointment approved and confirmation email sent.' });

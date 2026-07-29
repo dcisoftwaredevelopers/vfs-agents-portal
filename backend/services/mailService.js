@@ -1,4 +1,8 @@
 const { Resend } = require("resend");
+const {
+  getFormattedEmailSender,
+  removeLegacyEmailBranding,
+} = require("../config/emailBranding");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -9,6 +13,9 @@ const normalizeAttachments = (attachments) => {
 
   return attachments.map((attachment) => {
     const normalized = { ...attachment };
+    if (normalized.filename) {
+      normalized.filename = removeLegacyEmailBranding(normalized.filename);
+    }
     if (Buffer.isBuffer(normalized.content)) {
       normalized.content = normalized.content.toString("base64");
     }
@@ -16,13 +23,13 @@ const normalizeAttachments = (attachments) => {
   });
 };
 
-exports.sendMail = async (mailOptions, defaultFromName = "VFS Global") => {
+exports.sendMail = async (mailOptions) => {
   try {
     const emailPayload = {
-      from: `${defaultFromName} <${process.env.EMAIL_FROM}>`,
+      from: getFormattedEmailSender(),
       to: mailOptions.to,
-      subject: mailOptions.subject,
-      html: mailOptions.html,
+      subject: removeLegacyEmailBranding(mailOptions.subject),
+      html: removeLegacyEmailBranding(mailOptions.html),
     };
 
     const attachments = normalizeAttachments(mailOptions.attachments);
