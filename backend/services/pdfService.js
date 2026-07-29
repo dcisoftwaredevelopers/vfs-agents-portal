@@ -1,8 +1,13 @@
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
+const PORTAL_NAME = 'Dream Catcher Immigrations B2B Visa Booking Portal';
+const replaceVfsBranding = (value = '') =>
+  String(value).replace(/\bVFS(?:\s+Global)?\b/gi, PORTAL_NAME);
+const formatAppointmentReference = (value = '') =>
+  String(value).trim().replace(/^VFS-/i, '');
 
 /**
- * Generates a VFS-style appointment confirmation PDF in-memory and returns it as a Buffer.
+ * Generates an appointment confirmation PDF in-memory and returns it as a Buffer.
  * @param {Object} appointment The appointment mongoose document
  * @param {Object} payment The payment mongoose document
  * @param {Object} slot The slot mongoose document
@@ -13,11 +18,14 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
   return new Promise(async (resolve, reject) => {
     try {
       // 1. Generate QR Code Buffer
+      const appointmentReference = formatAppointmentReference(appointment.referenceNumber);
       let qrBuffer;
-      try {
-        qrBuffer = await QRCode.toBuffer(appointment.referenceNumber, { margin: 1, width: 80 });
-      } catch (qrErr) {
-        console.error('Failed to generate QR Code:', qrErr.message);
+      if (appointmentReference) {
+        try {
+          qrBuffer = await QRCode.toBuffer(appointmentReference, { margin: 1, width: 80 });
+        } catch (qrErr) {
+          console.error('Failed to generate QR Code:', qrErr.message);
+        }
       }
 
       // Initialize PDF A4 Document
@@ -40,10 +48,10 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
         
         // Support details
         doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.5);
-        doc.text('DREAM CATCHER IMMIGRATIONS', 40, 792);
+        doc.text(PORTAL_NAME.toUpperCase(), 40, 792);
         
         doc.font('Helvetica').fontSize(8).fillColor('#cbd5e1');
-        doc.text('Email: support@dreamcatcherimmigrations.com  |  Phone: +91 98765 43210  |  Website: www.dreamcatcherimmigrations.com', 40, 804);
+        doc.text('Email: info@dreamcatcherimmigrations.com  |  Phone: +91 90470 47512  |  Website: www.dreamcatcherimmigrations.com', 40, 804);
         
         doc.fillColor('#94a3b8').fontSize(7.5);
         doc.text('© 2026 Dream Catcher Immigrations. All rights reserved. Dream Catcher Immigrations is an independent support service provider and is not affiliated with any government agency.', 40, 818, { width: 515 });
@@ -56,8 +64,8 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
         doc.rect(0, 0, 595, 80).fill('#0c2340');
         doc.fillColor('#ffffff')
            .font('Helvetica-Bold')
-           .fontSize(20)
-           .text('DREAM CATCHER IMMIGRATIONS', 40, 24, { characterSpacing: 1 });
+           .fontSize(14)
+           .text(PORTAL_NAME.toUpperCase(), 40, 24, { characterSpacing: 0.5 });
         
         doc.fillColor('#dfa015')
            .font('Helvetica')
@@ -74,7 +82,9 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
 
       // Welcome / Greeting
       const primaryApplicant = appointment.applicantDetails && appointment.applicantDetails[0];
-      const applicantName = primaryApplicant ? `${primaryApplicant.firstName} ${primaryApplicant.lastName}` : 'Applicant';
+      const applicantName = replaceVfsBranding(
+        primaryApplicant ? `${primaryApplicant.firstName} ${primaryApplicant.lastName}` : 'Applicant'
+      );
       
       doc.fillColor('#0c2340')
          .font('Helvetica-Bold')
@@ -91,7 +101,7 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
 
       // Section: Summary Panel Box
       const panelY = doc.y;
-      const panelHeight = 150;
+      const panelHeight = 170;
       doc.rect(40, panelY, 515, panelHeight).strokeColor('#e2e8f0').lineWidth(1).stroke();
       doc.rect(40, panelY, 515, 20).fill('#0c2340');
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(9).text('APPOINTMENT SUMMARY', 50, panelY + 5);
@@ -101,32 +111,31 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
       let currentL = panelY + 28;
       
       doc.font('Helvetica-Bold').text('Application Centre:', 50, currentL);
-      doc.font('Helvetica').text(center ? center.name : 'Visa Application Centre', 150, currentL);
+      const centerNameText = replaceVfsBranding(center ? center.name : 'Visa Application Centre');
+      doc.font('Helvetica').text(centerNameText, 150, currentL, { width: 190 });
       
-      currentL += 15;
+      currentL += Math.max(15, doc.heightOfString(centerNameText, { width: 190 })) + 5;
       doc.font('Helvetica-Bold').text('Centre Address:', 50, currentL);
-      const addrText = center && center.address ? center.address : 'N/A';
+      const addrText = replaceVfsBranding(center && center.address ? center.address : 'N/A');
       doc.font('Helvetica').text(addrText, 150, currentL, { width: 200 });
       
       // Calculate dynamic address text height to position date/time
       const addressHeight = doc.heightOfString(addrText, { width: 200 });
       currentL += Math.max(15, addressHeight) + 5;
 
-      doc.font('Helvetica-Bold').text('Appointment Date:', 50, currentL);
-      doc.font('Helvetica').text(new Date(appointment.bookingDate).toLocaleDateString('en-GB', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }), 150, currentL);
-      
-      currentL += 15;
-      doc.font('Helvetica-Bold').text('Appointment Time:', 50, currentL);
-      doc.font('Helvetica-Bold').fillColor('#0c2340').text(appointment.bookingTime, 150, currentL);
+      doc.font('Helvetica-Bold').text('Appointment Schedule:', 50, currentL);
+      doc.font('Helvetica-Bold').fillColor('#0c2340').text('To Be Scheduled', 150, currentL);
       doc.fillColor('#334155');
 
       // Right Column details (X=370)
       let currentR = panelY + 28;
-      doc.font('Helvetica-Bold').text('Reference No:', 365, currentR);
-      doc.font('Helvetica-Bold').fillColor('#e67e22').text(appointment.referenceNumber, 445, currentR);
-      doc.fillColor('#334155');
-
-      currentR += 15;
+      if (appointmentReference) {
+        doc.font('Helvetica-Bold').text('Reference No:', 365, currentR);
+        doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#e67e22').text(appointmentReference, 445, currentR, { width: 100 });
+        doc.fillColor('#334155');
+        currentR += Math.max(15, doc.heightOfString(appointmentReference, { width: 100 })) + 5;
+      }
+      doc.fontSize(8.5);
       doc.font('Helvetica-Bold').text('Visa Category:', 365, currentR);
       doc.font('Helvetica').text(primaryApplicant ? primaryApplicant.visaCategory : 'N/A', 445, currentR);
 
@@ -150,9 +159,9 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8.5);
       doc.text('Applicant Name', 50, headerY + 5);
       doc.text('Passport No.', 200, headerY + 5);
-      doc.text('Appt Time', 300, headerY + 5);
+      doc.text('Schedule', 300, headerY + 5);
       doc.text('Visa Category', 370, headerY + 5);
-      doc.text('Reference Number', 470, headerY + 5);
+      doc.text('Status', 470, headerY + 5);
 
       // Draw Grid / Table Rows
       let rowY = headerY + 18;
@@ -165,11 +174,11 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
             doc.rect(40, rowY, 515, 18).fill('#ffffff');
           }
           doc.fillColor('#334155').font('Helvetica').fontSize(8);
-          doc.text(`${applicant.firstName} ${applicant.lastName}`, 50, rowY + 5);
-          doc.text(applicant.passportNumber, 200, rowY + 5);
-          doc.text(appointment.bookingTime, 300, rowY + 5);
-          doc.text(applicant.visaCategory, 370, rowY + 5);
-          doc.text(appointment.referenceNumber, 470, rowY + 5);
+          doc.text(replaceVfsBranding(`${applicant.firstName} ${applicant.lastName}`), 50, rowY + 5);
+          doc.text(replaceVfsBranding(applicant.passportNumber), 200, rowY + 5);
+          doc.text('To Be Scheduled', 300, rowY + 5);
+          doc.text(replaceVfsBranding(applicant.visaCategory), 370, rowY + 5);
+          doc.text('Confirmed', 470, rowY + 5);
           rowY += 18;
         });
       }
@@ -208,7 +217,7 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
 
       // Draw Selected Services Box
       const servBoxY = servicesHeaderY + 15;
-      const servBoxHeight = 80 + Math.max(0, (appointment.servicesSelected ? appointment.servicesSelected.length * 15 : 0));
+      const servBoxHeight = 100 + Math.max(0, (appointment.servicesSelected ? appointment.servicesSelected.length * 15 : 0));
       doc.rect(40, servBoxY, 515, servBoxHeight).strokeColor('#cbd5e1').lineWidth(1).stroke();
 
       let itemY = servBoxY + 10;
@@ -221,7 +230,7 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
       doc.font('Helvetica').fontSize(8);
       if (appointment.servicesSelected && appointment.servicesSelected.length > 0) {
         appointment.servicesSelected.forEach(s => {
-          doc.text(s.name, 55, itemY);
+          doc.text(replaceVfsBranding(s.name), 55, itemY);
           doc.text(`INR ${s.price.toFixed(2)}`, 480, itemY, { align: 'right', width: 60 });
           itemY += 15;
         });
@@ -273,25 +282,25 @@ exports.generateConfirmationPDF = (appointment, payment, slot, center) => {
           doc.rect(40, appBoxY, 515, 65).strokeColor('#e2e8f0').lineWidth(1).stroke();
           doc.rect(40, appBoxY, 515, 18).fill('#f1f5f9');
           
-          doc.fillColor('#0c2340').font('Helvetica-Bold').fontSize(8.5).text(`Applicant ${idx + 1}: ${applicant.firstName} ${applicant.lastName}`, 50, appBoxY + 5);
+          doc.fillColor('#0c2340').font('Helvetica-Bold').fontSize(8.5).text(replaceVfsBranding(`Applicant ${idx + 1}: ${applicant.firstName} ${applicant.lastName}`), 50, appBoxY + 5);
           doc.fillColor('#334155').font('Helvetica').fontSize(8.5);
 
           // Details row 1
           doc.font('Helvetica-Bold').text('Passport Number:', 50, appBoxY + 25);
-          doc.font('Helvetica').text(applicant.passportNumber, 140, appBoxY + 25);
+          doc.font('Helvetica').text(replaceVfsBranding(applicant.passportNumber), 140, appBoxY + 25);
 
           doc.font('Helvetica-Bold').text('Nationality:', 50, appBoxY + 38);
-          doc.font('Helvetica').text(applicant.nationality || 'Indian', 140, appBoxY + 38);
+          doc.font('Helvetica').text(replaceVfsBranding(applicant.nationality || 'Indian'), 140, appBoxY + 38);
 
           doc.font('Helvetica-Bold').text('Visa Category:', 50, appBoxY + 51);
-          doc.font('Helvetica').text(applicant.visaCategory, 140, appBoxY + 51);
+          doc.font('Helvetica').text(replaceVfsBranding(applicant.visaCategory), 140, appBoxY + 51);
 
           // Details row 2
           doc.font('Helvetica-Bold').text('Email Address:', 285, appBoxY + 25);
-          doc.font('Helvetica').text(applicant.email || 'N/A', 365, appBoxY + 25);
+          doc.font('Helvetica').text(replaceVfsBranding(applicant.email || 'N/A'), 365, appBoxY + 25);
 
           doc.font('Helvetica-Bold').text('Phone Number:', 285, appBoxY + 38);
-          doc.font('Helvetica').text(applicant.phone || 'N/A', 365, appBoxY + 38);
+          doc.font('Helvetica').text(replaceVfsBranding(applicant.phone || 'N/A'), 365, appBoxY + 38);
 
           appBoxY += 75;
         });

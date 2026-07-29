@@ -1,5 +1,9 @@
 const AgentNotification = require('../models/AgentNotification');
 const nodemailer = require('nodemailer');
+const {
+  getFormattedEmailSender,
+  removeLegacyEmailBranding,
+} = require('../config/emailBranding');
 
 /**
  * Create a centralized notification and save to database.
@@ -42,10 +46,10 @@ exports.sendEmail = async (to, subject, htmlContent) => {
     });
 
     const mailOptions = {
-      from: `"Dream Catcher Notification" <${process.env.EMAIL_USER}>`,
+      from: getFormattedEmailSender(),
       to,
-      subject,
-      html: htmlContent
+      subject: removeLegacyEmailBranding(subject),
+      html: removeLegacyEmailBranding(htmlContent)
     };
 
     const info = await transporter.sendMail(mailOptions);

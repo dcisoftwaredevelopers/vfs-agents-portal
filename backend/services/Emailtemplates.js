@@ -9,6 +9,8 @@
 // escape it before interpolating to avoid HTML/script injection in the
 // rendered email.
 
+const { EMAIL_SENDER_NAME } = require('../config/emailBranding');
+
 const escapeHtml = (str = '') =>
   String(str)
     .replace(/&/g, '&amp;')
@@ -16,6 +18,12 @@ const escapeHtml = (str = '') =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+
+const PORTAL_NAME = EMAIL_SENDER_NAME;
+const APPOINTMENT_CONFIRMATION_SENDER_NAME = PORTAL_NAME;
+const APPOINTMENT_CONFIRMATION_SUBJECT = 'Appointment Confirmation Letter';
+const replaceVfsBranding = (str = '') =>
+  String(str).replace(/\bVFS(?:\s+Global)?\b/gi, PORTAL_NAME);
 
 const emailShell = (innerHtml, { borderColor = '#e2e8f0' } = {}) => `
   <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid ${borderColor}; border-radius: 8px;">
@@ -28,92 +36,55 @@ const emailShell = (innerHtml, { borderColor = '#e2e8f0' } = {}) => `
 `;
 
 function buildAppointmentConfirmationHtml({ appointment, center }) {
-  const servicesRows = appointment.servicesSelected && appointment.servicesSelected.length > 0
-    ? appointment.servicesSelected
-        .map(
-          (s) => `
-        <tr style="border-bottom: 1px solid #f1f5f9;">
-          <td style="padding: 6px 0;">${escapeHtml(s.name)}</td>
-          <td style="padding: 6px 0; text-align: right; font-weight: bold;">INR ${s.price.toFixed(2)}</td>
-        </tr>
-      `
-        )
-        .join('')
-    : `
-        <tr>
-          <td style="padding: 6px 0; color: #64748b; font-style: italic;">No additional services selected</td>
-          <td style="padding: 6px 0; text-align: right; font-weight: bold;">INR 0.00</td>
-        </tr>
-      `;
+  const primaryApplicant = appointment.applicantDetails?.[0] || {};
+  const countryName = center?.countryName || 'Portugal';
+  const centerCity = center?.city || 'New Delhi';
+  const centerDisplayName = replaceVfsBranding(center?.name || `${centerCity} Visa Application Centre`);
+  const applicantName = `${primaryApplicant.firstName || ''} ${primaryApplicant.lastName || ''}`
+    .trim()
+    .toUpperCase() || 'CUSTOMER';
+  const passportNumber = String(primaryApplicant.passportNumber || 'N/A').toUpperCase();
+  const visaCategory = primaryApplicant.visaCategory || 'Standard';
 
-  return emailShell(`
-    <h2 style="color: #0c2340; border-bottom: 2px solid #dfa015; padding-bottom: 15px; margin-top: 0;">Appointment Confirmed</h2>
-    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Dear Applicant,</p>
-    <p style="font-size: 15px; line-height: 1.5; color: #334155;">
-      We are pleased to inform you that your UPI payment for appointment reference <strong>${escapeHtml(appointment.referenceNumber)}</strong> has been verified successfully.
-    </p>
+  return `
+    <div style="font-family: Georgia, 'Times New Roman', serif; color: #000000; max-width: 760px; margin: 0 auto; padding: 24px 18px; font-size: 18px; line-height: 1.12;">
+      <p style="margin: 0 0 28px 0;">Dear Customer,</p>
 
-    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 15px; margin: 20px 0;">
-      <h3 style="margin-top: 0; color: #0c2340; font-size: 16px; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px;">Appointment Details Summary</h3>
-      <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155;">
-        <tr>
-          <td style="padding: 6px 0; font-weight: bold; width: 35%;">Reference Number:</td>
-          <td style="padding: 6px 0; color: #e67e22; font-weight: bold;">${escapeHtml(appointment.referenceNumber)}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; font-weight: bold;">Application Centre:</td>
-          <td style="padding: 6px 0; font-weight: bold;">${escapeHtml(center ? center.name : 'Visa Application Centre')}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; font-weight: bold; vertical-align: top;">Centre Address:</td>
-          <td style="padding: 6px 0; line-height: 1.4;">${escapeHtml(center && center.address ? center.address : 'N/A')}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; font-weight: bold;">Appointment Date:</td>
-          <td style="padding: 6px 0;">${new Date(appointment.bookingDate).toLocaleDateString('en-GB', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; font-weight: bold;">Appointment Time:</td>
-          <td style="padding: 6px 0; font-weight: bold;">${escapeHtml(appointment.bookingTime)}</td>
-        </tr>
-      </table>
+      <p style="margin: 0 0 18px 0;">Greetings from the ${PORTAL_NAME} ${escapeHtml(countryName)} Visa Helpdesk.</p>
+
+      <p style="margin: 0 0 18px 0;">
+        We would like to inform you that as per the update received from our dedicated team, your appointment has been scheduled at <strong>${escapeHtml(centerDisplayName)}</strong> as per the below mentioned details:
+      </p>
+
+      <p style="margin: 0 0 16px 0;">Kindly refer the below details:</p>
+
+      <p style="margin: 0;">
+        Name: ${escapeHtml(applicantName)}<br />
+        Passport no: ${escapeHtml(passportNumber)}<br />
+        Appointment date: To Be Scheduled<br />
+        Visa Category: ${escapeHtml(visaCategory)}
+      </p>
+
+      <p style="margin: 0 0 22px 0;">We value your time and patience.</p>
+
+      <p style="margin: 0 0 18px 0;">
+        In case of further assistance, please contact us at
+        <a href="tel:+919047047512" style="color: #2f6f73; text-decoration: underline;">+91 90470 47512</a>
+        or write to us at
+        <a href="mailto:info@dreamcatcherimmigrations.com" style="color: #2f6f73; text-decoration: underline;">info@dreamcatcherimmigrations.com</a>.
+      </p>
+
+      <p style="margin: 0 0 18px 0;">Best Regards,</p>
+      <p style="margin: 0 0 22px 0;">${escapeHtml(countryName)} Visa Help Desk</p>
+
+      <p style="margin: 0;">${PORTAL_NAME}<br />B2B Visa Booking Services</p>
+
+      <p style="margin: 22px 0 0 0;">
+        Contact: <a href="tel:+919047047512" style="color: #2f6f73; text-decoration: underline;">+91 90470 47512</a> |
+        <a href="mailto:info@dreamcatcherimmigrations.com" style="color: #2f6f73; text-decoration: underline;">info@dreamcatcherimmigrations.com</a>
+      </p>
     </div>
-
-    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 15px; margin: 20px 0;">
-      <h3 style="margin-top: 0; color: #0c2340; font-size: 16px; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px;">Selected Services & Pricing Summary</h3>
-      <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155; margin-bottom: 10px;">
-        <thead>
-          <tr style="border-bottom: 1px solid #cbd5e1;">
-            <th style="text-align: left; padding: 6px 0; font-weight: bold;">Service Name</th>
-            <th style="text-align: right; padding: 6px 0; font-weight: bold;">Price</th>
-          </tr>
-        </thead>
-        <tbody>${servicesRows}</tbody>
-      </table>
-
-      <div style="border-top: 1px solid #cbd5e1; padding-top: 8px; font-size: 13.5px; color: #334155;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 3px 0;">Services Subtotal:</td>
-            <td style="padding: 3px 0; text-align: right; font-weight: bold;">INR ${(appointment.selectedServicesTotal || 0).toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 0;">Appointment Fee:</td>
-            <td style="padding: 3px 0; text-align: right; font-weight: bold;">INR ${(appointment.appointmentFee || 0).toFixed(2)}</td>
-          </tr>
-          <tr style="font-size: 15px; color: #0c2340; font-weight: bold; border-top: 1.5px solid #0c2340;">
-            <td style="padding: 8px 0 0 0;">Grand Total:</td>
-            <td style="padding: 8px 0 0 0; text-align: right; color: #e67e22;">INR ${(appointment.totalAmount || 0).toFixed(2)}</td>
-          </tr>
-        </table>
-      </div>
-    </div>
-
-    <p style="font-size: 15px; line-height: 1.5; color: #334155;">
-      Your biometric appointment is now confirmed. Please find your official <strong>Appointment Confirmation Letter</strong> attached as a PDF to this email.
-    </p>
-    <p style="font-size: 15px; line-height: 1.5; color: #334155;">Thank you for choosing Dream Catcher Immigrations.</p>
-  `);
+  `;
 }
 
 function buildPaymentRejectedHtml({ appointment, reason }) {
@@ -172,6 +143,8 @@ function buildSubscriptionRejectedHtml({ agent, remarks }) {
 }
 
 module.exports = {
+  APPOINTMENT_CONFIRMATION_SENDER_NAME,
+  APPOINTMENT_CONFIRMATION_SUBJECT,
   buildAppointmentConfirmationHtml,
   buildPaymentRejectedHtml,
   buildSubscriptionActivatedHtml,
