@@ -568,10 +568,10 @@ export default function AgentDashboard() {
 
   // ---- render ------------------------------------------------------------
   return (
-    <div className="container" style={{ marginTop: '30px', paddingBottom: '60px', fontFamily: "'Outfit', 'Inter', sans-serif" }}>
+    <div className="container agent-dashboard" style={{ marginTop: '30px', paddingBottom: '60px', fontFamily: "'Outfit', 'Inter', sans-serif" }}>
 
       {/* Agency profile header */}
-      <div style={{
+      <div className="agent-dashboard-header" style={{
         backgroundColor: COLORS.navy, borderRadius: '8px', padding: '30px 40px', color: '#fff',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap',
         gap: '20px', marginBottom: '35px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
@@ -600,7 +600,7 @@ export default function AgentDashboard() {
             )}
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px', marginTop: '16px' }}>
+          <div className="agent-dashboard-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px', marginTop: '16px' }}>
             <div style={{ border: '1px solid #d1fae5', backgroundColor: '#ecfdf5', borderRadius: '6px', padding: '12px' }}>
               <div style={{ fontSize: '12px', color: '#047857', marginBottom: '6px' }}>Stars</div>
               <div style={{ fontSize: '20px', fontWeight: '800', color: '#065f46' }}>{user.stars ?? 0}</div>
@@ -633,7 +633,7 @@ export default function AgentDashboard() {
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <div className="agent-dashboard-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div style={{ textAlign: 'right' }}>
             <span style={{ fontSize: '12px', opacity: 0.7, display: 'block' }}>Account Status</span>
             <StatusPill status={user.status} />
@@ -681,10 +681,10 @@ export default function AgentDashboard() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+      <div className="agent-dashboard-layout" style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
 
         {/* Sidebar nav */}
-        <div style={{ flex: '1 1 240px', maxWidth: '300px' }}>
+        <div className="agent-dashboard-sidebar" style={{ flex: '1 1 240px', maxWidth: '300px' }}>
           <div className="glass-card-premium" style={{ padding: '15px 0', display: 'flex', flexDirection: 'column', gap: '5px', border: '1px solid rgba(12, 35, 64, 0.08)' }}>
             {NAV_ITEMS.map(({ key, label, icon: Icon }) => {
               const isActive = activeTab === key;
@@ -735,7 +735,7 @@ export default function AgentDashboard() {
         </div>
 
         {/* Main content */}
-        <div style={{ flex: '1 1 500px' }}>
+        <div className="agent-dashboard-content" style={{ flex: '1 1 500px' }}>
 
           {activeTab === 'subscription' && (
             <div className="glass-card-premium" style={{ padding: '30px', border: '1px solid rgba(12, 35, 64, 0.08)' }}>
@@ -1493,7 +1493,7 @@ export default function AgentDashboard() {
         <div style={styles.modalOverlay(1000)}>
           <div className="card" style={{
             backgroundColor: '#fff', borderRadius: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-            width: '480px', padding: '30px', borderTop: `5px solid ${COLORS.gold}`, maxHeight: '90vh', overflowY: 'auto',
+            width: 'min(480px, calc(100vw - 24px))', padding: '30px', borderTop: `5px solid ${COLORS.gold}`, maxHeight: '90vh', overflowY: 'auto',
           }}>
             <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', fontWeight: '800', color: COLORS.navy, border: 'none', padding: 0 }}>
               {paymentType === 'renew' ? 'Renew Portal Subscription' : 'Purchase Portal Subscription'}
@@ -1630,7 +1630,7 @@ export default function AgentDashboard() {
       {/* Enlarged QR modal */}
       {enlargeQR && (
         <div style={{ ...styles.modalOverlay(1100), backgroundColor: 'rgba(12, 35, 64, 0.8)' }} onClick={() => setEnlargeQR(false)}>
-          <div style={{ backgroundColor: '#fff', padding: '30px', borderRadius: '8px', textAlign: 'center', width: '360px' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ backgroundColor: '#fff', padding: '30px', borderRadius: '8px', textAlign: 'center', width: 'min(360px, calc(100vw - 24px))' }} onClick={(e) => e.stopPropagation()}>
             <h4 style={{ margin: '0 0 15px 0', color: COLORS.navy, fontWeight: 'bold' }}>Dream Catcher UPI QR Code</h4>
 
             {(() => {
@@ -1674,7 +1674,7 @@ export default function AgentDashboard() {
       {/* Access alert modals */}
       {accessAlertModal === 'NoSub' && (
         <div style={styles.modalOverlay(1200)}>
-          <div className="card" style={{ width: '450px', padding: '30px', backgroundColor: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="card" style={{ width: 'min(450px, calc(100vw - 24px))', padding: '30px', backgroundColor: '#fff', borderRadius: '8px', textAlign: 'center' }}>
             <div style={{ fontSize: '40px', color: COLORS.gold, marginBottom: '15px' }}>⚠️</div>
             <h3 style={{ margin: '0 0 15px 0', color: COLORS.navy, fontWeight: 'bold', border: 'none', padding: 0 }}>Subscription Required</h3>
             <p style={{ margin: '0 0 25px 0', fontSize: '14px', lineHeight: '1.6', color: '#475569' }}>
@@ -1697,7 +1697,7 @@ export default function AgentDashboard() {
 
       {accessAlertModal === 'Pending' && (
         <div style={styles.modalOverlay(1200)}>
-          <div className="card" style={{ width: '450px', padding: '30px', backgroundColor: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="card" style={{ width: 'min(450px, calc(100vw - 24px))', padding: '30px', backgroundColor: '#fff', borderRadius: '8px', textAlign: 'center' }}>
             <div style={{ fontSize: '40px', color: '#3b82f6', marginBottom: '15px' }}>⏳</div>
             <h3 style={{ margin: '0 0 15px 0', color: COLORS.navy, fontWeight: 'bold', border: 'none', padding: 0 }}>Subscription Under Verification</h3>
             <p style={{ margin: '0 0 15px 0', fontSize: '14px', lineHeight: '1.6', color: '#475569' }}>
@@ -1718,7 +1718,7 @@ export default function AgentDashboard() {
 
       {accessAlertModal === 'Expired' && (
         <div style={styles.modalOverlay(1200)}>
-          <div className="card" style={{ width: '450px', padding: '30px', backgroundColor: '#fff', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="card" style={{ width: 'min(450px, calc(100vw - 24px))', padding: '30px', backgroundColor: '#fff', borderRadius: '8px', textAlign: 'center' }}>
             <div style={{ fontSize: '40px', color: COLORS.red, marginBottom: '15px' }}>❌</div>
             <h3 style={{ margin: '0 0 15px 0', color: COLORS.navy, fontWeight: 'bold', border: 'none', padding: 0 }}>Subscription Expired</h3>
             <p style={{ margin: '0 0 25px 0', fontSize: '14px', lineHeight: '1.6', color: '#475569' }}>
