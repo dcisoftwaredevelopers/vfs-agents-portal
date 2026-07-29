@@ -1,9 +1,10 @@
 const EMAIL_SENDER_NAME = 'Dream Catcher Immigrations B2B Visa Booking Portal';
-const DEFAULT_EMAIL_FROM = 'noreply@dreamcatcherimmigrations.com';
+const DEFAULT_EMAIL_FROM = 'noreply@vfsglobal.world';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const getEmailFromAddress = () => {
   const configuredAddress = String(process.env.EMAIL_FROM || '').trim();
-  return /^[^@\s]+@dreamcatcherimmigrations\.com$/i.test(configuredAddress)
+  return EMAIL_RE.test(configuredAddress)
     ? configuredAddress
     : DEFAULT_EMAIL_FROM;
 };
