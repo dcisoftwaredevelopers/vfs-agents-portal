@@ -3,7 +3,7 @@ const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const { validateAgentRegister, validateLogin } = require('../middleware/validators');
 const { asyncHandler } = require('../utils/asyncHandler');
-const { loginLimiter, adminLoginLimiter, registerLimiter } = require('../middleware/rateLimiter'); // ADDED
+const { loginLimiter, adminLoginLimiter, registerLimiter, forgotPasswordLimiter } = require('../middleware/rateLimiter'); // ADDED
 const upload = require('../config/multer'); // ADDED: Import multer config
 const {
   registerAgent,
@@ -11,6 +11,8 @@ const {
   googleAuth,
   completeGoogleProfile,
   adminLogin,
+  forgotAgentPassword,
+  resetAgentPassword,
   getProfile,
   logout,
 } = require('../controllers/authController');
@@ -19,6 +21,8 @@ const {
 // requests get rejected early, before hitting DB or bcrypt (cheap to expensive).
 router.post('/register', registerLimiter, upload.single('logo'), validateAgentRegister, asyncHandler(registerAgent));
 router.post('/login', loginLimiter, validateLogin, asyncHandler(loginAgent));
+router.post('/forgot-password', forgotPasswordLimiter, asyncHandler(forgotAgentPassword));
+router.post('/reset-password', forgotPasswordLimiter, asyncHandler(resetAgentPassword));
 router.post('/google', loginLimiter, asyncHandler(googleAuth));
 router.put('/complete-profile', protect, upload.single('logo'), asyncHandler(completeGoogleProfile));
 router.post('/admin-login', adminLoginLimiter, asyncHandler(adminLogin));

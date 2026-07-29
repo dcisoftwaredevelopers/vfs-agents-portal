@@ -9,14 +9,20 @@ import {
   selectCurrentUser,
   selectCurrentAdmin,
 } from '../features/auth/authSlice';
+import { API_ROOT_URL } from '../config/api';
 
 const ADMIN_EMAIL = 'admindci@gmail.com';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
   const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState('');
+  const [showForgotForm, setShowForgotForm] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -74,6 +80,38 @@ export default function Login() {
     triggerLogin(email, password);
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    const targetEmail = forgotEmail.trim();
+    setResetMessage('');
+    setResetError('');
+
+    if (!targetEmail) {
+      setResetError('Email address is required.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const res = await fetch(`${API_ROOT_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setResetError(data.message || 'Unable to process reset request.');
+      } else {
+        setResetMessage(data.message || 'If an agent account exists for this email, a reset link has been sent.');
+      }
+    } catch (err) {
+      setResetError(err.message || 'Network error. Please try again.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   return (
     <div className="container" style={{ maxWidth: '450px', marginTop: '40px' }}>
       <div className="glass-card-premium animate-slideup" style={{ padding: '35px', borderTop: '5px solid #dfa015', borderLeft: '1px solid rgba(12, 35, 64, 0.05)', borderRight: '1px solid rgba(12, 35, 64, 0.05)', borderBottom: '1px solid rgba(12, 35, 64, 0.05)', borderRadius: '8px', boxShadow: '0 20px 40px rgba(12, 35, 64, 0.08)' }}>
@@ -109,7 +147,21 @@ export default function Login() {
           </div>
 
           <div className="form-group" style={{ marginBottom: '25px' }}>
-            <label className="form-label">Password</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+              <label className="form-label" style={{ marginBottom: '6px' }}>Password</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotEmail(email);
+                  setShowForgotForm((prev) => !prev);
+                  setResetError('');
+                  setResetMessage('');
+                }}
+                style={{ background: 'none', border: 'none', color: '#dfa015', fontSize: '12px', fontWeight: '800', padding: 0 }}
+              >
+                Forgot password?
+              </button>
+            </div>
             <input
               type="password"
               className="form-control"
@@ -135,6 +187,49 @@ export default function Login() {
             ) : 'Sign In'}
           </button>
         </form>
+
+        {showForgotForm && (
+          <form
+            onSubmit={handleForgotPassword}
+            style={{ marginTop: '20px', padding: '18px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f8fafc' }}
+          >
+            <h3 style={{ margin: '0 0 6px', color: '#0c2340', fontSize: '16px', fontWeight: '800', border: 'none', padding: 0 }}>
+              Reset your password
+            </h3>
+            <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: '12.5px', lineHeight: 1.5 }}>
+              Enter your registered agent email. We will send a secure reset link if the account exists.
+            </p>
+            <div className="form-group" style={{ marginBottom: '12px' }}>
+              <label className="form-label">Registered Email</label>
+              <input
+                type="email"
+                className="form-control"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                placeholder="agent@example.com"
+                required
+              />
+            </div>
+            {resetError && (
+              <div style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: '10px', borderRadius: '4px', fontSize: '12px', marginBottom: '12px' }}>
+                {resetError}
+              </div>
+            )}
+            {resetMessage && (
+              <div style={{ backgroundColor: '#ecfdf5', color: '#047857', padding: '10px', borderRadius: '4px', fontSize: '12px', marginBottom: '12px' }}>
+                {resetMessage}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="btn btn-outline"
+              style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', color: '#0c2340', fontWeight: '800' }}
+              disabled={resetLoading}
+            >
+              {resetLoading ? 'Sending...' : 'Send Reset Link'}
+            </button>
+          </form>
+        )}
 
         <div style={{ textAlign: 'center', marginTop: '25px', fontSize: '14px', color: '#666' }}>
           New Agency? <Link to="/register" style={{ color: '#dfa015', fontWeight: '600' }}>Register here</Link>

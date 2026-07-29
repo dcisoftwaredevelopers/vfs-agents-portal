@@ -3,6 +3,7 @@ const { OAuth2Client } = require('google-auth-library');
 const Agent = require('../models/Agent');
 const { generateToken, setAuthCookie, clearAuthCookie, normalizeEmail, buildAuthResponse } = require('../utils/authUtils');
 const rewardService = require('../services/rewardService');
+const mailService = require('../services/mailService');
 // NOTE: asyncHandler wrapping is done in routes/auth.js via your own
 // utils/asyncHandler.js — so these controller functions are plain async
 // functions here and don't wrap themselves.
@@ -11,6 +12,15 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const RESOLVED_ADMIN_EMAIL = normalizeEmail(ADMIN_EMAIL || 'admindci@gmail.com');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '');
+const genericAgentResetMessage = 'If an agent account exists for this email, a reset link has been sent.';
+
+const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+const getClientOrigin = (req) => {
+  const configuredOrigin = (process.env.CLIENT_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean)[0];
+  const requestOrigin = req.headers.origin;
+  return configuredOrigin || requestOrigin || 'http://localhost:5173';
+};
 
 const PROFILE_COMPLETION_FIELDS = [
   'agencyName',
@@ -409,6 +419,108 @@ const adminLogin = async (req, res) => {
   res.json(buildAuthResponse(agent));
 };
 
+const forgotAgentPassword = async (req, res) => {
+  const email = req.body?.email ? normalizeEmail(req.body.email) : '';
+
+  try {
+    if (!email) {
+      return res.json({ message: genericAgentResetMessage });
+    }
+
+    const agent = await Agent.findOne({ email, role: 'Agent' })
+      .select('+resetPasswordToken +resetPasswordExpires');
+
+    if (!agent || agent.role !== 'Agent' || agent.isActive === false || agent.status === 'Deleted') {
+      return res.json({ message: genericAgentResetMessage });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    agent.resetPasswordToken = hashResetToken(rawToken);
+    agent.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
+    await agent.save({ validateBeforeSave: false });
+
+    const resetLink = `${getClientOrigin(req).replace(/\/$/, '')}/reset-password?token=${rawToken}`;
+
+    try {
+      await mailService.sendMail(
+        {
+          to: agent.email,
+          subject: 'Reset your Dream Catcher Agent Portal password',
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="color: #0c2340; margin: 0; font-size: 24px; font-weight: bold; border-bottom: 2px solid #dfa015; padding-bottom: 15px;">Dream Catcher Agent Portal</h2>
+              </div>
+              <p style="font-size: 16px; line-height: 1.5; color: #334155;">Dear ${agent.ownerName || 'Agent'},</p>
+              <p style="font-size: 15px; line-height: 1.6; color: #334155;">A password reset was requested for your agent account. Use the secure link below to set a new password.</p>
+              <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 20px; text-align: center; margin: 25px 0;">
+                <a href="${resetLink}" style="display: inline-block; background-color: #0c2340; color: #ffffff; text-decoration: none; padding: 12px 18px; border-radius: 4px; font-weight: bold;">Reset Password</a>
+              </div>
+              <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin-top: 20px;">
+                This link expires in <strong>15 minutes</strong> and can be used only once. If you did not request this, you can safely ignore this email.
+              </p>
+              <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;" />
+              <p style="font-size: 12px; color: #94a3b8; text-align: center;">This is an automated notification. Please do not reply directly to this mail.</p>
+            </div>
+          `
+        },
+        'Dream Catcher Agent Portal'
+      );
+    } catch (mailError) {
+      agent.resetPasswordToken = null;
+      agent.resetPasswordExpires = null;
+      await agent.save({ validateBeforeSave: false });
+      console.error('Agent password reset email failed:', mailError.message);
+    }
+
+    return res.json({ message: genericAgentResetMessage });
+  } catch (error) {
+    console.error('Agent forgot-password error:', error.message);
+    return res.json({ message: genericAgentResetMessage });
+  }
+};
+
+const resetAgentPassword = async (req, res) => {
+  const token = req.body?.token ? String(req.body.token).trim() : '';
+  const newPassword = req.body?.newPassword ? String(req.body.newPassword) : '';
+
+  if (!token) {
+    return res.status(400).json({ message: 'This reset link is invalid or has expired.' });
+  }
+
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ message: 'New password must be at least 8 characters.' });
+  }
+
+  const agent = await Agent.findOne({
+    role: 'Agent',
+    resetPasswordToken: hashResetToken(token),
+    resetPasswordExpires: { $gt: new Date() }
+  }).select('+password +resetPasswordToken +resetPasswordExpires +loginAttempts +lockUntil');
+
+  if (!agent || agent.role !== 'Agent') {
+    return res.status(400).json({ message: 'This reset link is invalid or has expired.' });
+  }
+
+  if (agent.isActive === false || agent.status === 'Deleted') {
+    return res.status(403).json({ message: 'This account is inactive. Please contact support.' });
+  }
+
+  agent.password = newPassword;
+  agent.markModified('password');
+  agent.resetPasswordToken = null;
+  agent.resetPasswordExpires = null;
+  agent.loginAttempts = 0;
+  agent.lockUntil = null;
+  await agent.save({ validateBeforeSave: false });
+
+  console.info(`[auth] agent password reset via email for=${agent.email}`);
+  return res.json({
+    message: `Password reset successfully for ${agent.email}. Please sign in with your new password.`,
+    email: agent.email,
+  });
+};
+
 const getProfile = async (req, res) => {
   if (!req.user) {
     res.status(401);
@@ -428,6 +540,8 @@ module.exports = {
   googleAuth,
   completeGoogleProfile,
   adminLogin,
+  forgotAgentPassword,
+  resetAgentPassword,
   getProfile,
   logout,
 };
