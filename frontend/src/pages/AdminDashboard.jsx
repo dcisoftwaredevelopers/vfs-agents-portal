@@ -52,7 +52,6 @@ function InfoTooltip({ text }) {
   );
 }
 
-// adminin dashboard page
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('adminInfo') || localStorage.getItem('userInfo'));
