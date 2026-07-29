@@ -243,11 +243,11 @@ exports.sendOtp = async (req, res) => {
     await mailService.sendMail(
       {
         to: normalizedEmail,
-        subject: 'VFS Global - Email Verification Code',
+        subject: 'Dream Catcher Immigrations B2B Visa Booking Portal – Email Verification Code',
         html: `
         <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
           <div style="text-align: center; margin-bottom: 20px;">
-            <h2 style="color: #0c2340; margin: 0; font-size: 24px; font-weight: bold; border-bottom: 2px solid #dfa015; padding-bottom: 15px;">VFS Global</h2>
+            <h2 style="color: #0c2340; margin: 0; font-size: 24px; font-weight: bold; border-bottom: 2px solid #dfa015; padding-bottom: 15px;">Dream Catcher Immigrations B2B Visa Booking Portal</h2>
           </div>
           <p style="font-size: 16px; line-height: 1.5; color: #334155;">Dear Applicant,</p>
           <p style="font-size: 15px; line-height: 1.6; color: #334155;">To continue with your UK Visa Application Centre appointment booking, please verify your email address using the One-Time Password (OTP) below:</p>
@@ -262,7 +262,7 @@ exports.sendOtp = async (req, res) => {
         </div>
       `
       },
-      'VFS Global Visa Booking'
+      'Dream Catcher Immigrations B2B Visa Booking Portal'
     );
     console.log(`OTP sent successfully to ${normalizedEmail}`);
 

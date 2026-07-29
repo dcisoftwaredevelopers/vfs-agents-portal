@@ -19,6 +19,11 @@ const Subscription = require('../models/Subscription');
 const AgentActivity = require('../models/AgentActivity');
 const AgentNotification = require('../models/AgentNotification');
 const mailService = require('../services/mailService');
+const {
+  APPOINTMENT_CONFIRMATION_SENDER_NAME,
+  APPOINTMENT_CONFIRMATION_SUBJECT,
+  buildAppointmentConfirmationHtml
+} = require('../services/Emailtemplates');
 const { DEFAULT_SLOTS, isSlotBlocked, getActiveLocksMap } = require('../services/slotAvailabilityService');
 const {
   buildPaymentProofRiskReview,
@@ -2183,17 +2188,26 @@ router.get('/payments-verification', protect, authorize('SUPER_ADMIN', 'CENTER_M
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.max(1, Math.min(100, parseInt(req.query.limit || '25', 10)));
 
-    const query = { status: 'Pending Verification', paymentStatus: 'Pending Verification' };
+    // Payment is the source of truth for this queue. Requiring both appointment
+    // status fields to contain one exact legacy label caused valid agent
+    // submissions to disappear when either field was migrated or updated first.
+    const pendingAppointmentIds = await Payment.distinct('appointmentId', {
+      status: 'PENDING_VERIFICATION'
+    });
+    const query = { _id: { $in: pendingAppointmentIds } };
     const total = await Appointment.countDocuments(query);
     const appointments = await Appointment.find(query)
-      .populate('userId', 'name email mobile')
+      .populate('userId', 'agentId agencyName ownerName name email mobile')
       .populate('centerId', 'name city')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
 
-    const payments = await Payment.find({ appointmentId: { $in: appointments.map(a => a._id) } }).sort({ createdAt: -1 }).lean();
+    const payments = await Payment.find({
+      appointmentId: { $in: appointments.map(a => a._id) },
+      status: 'PENDING_VERIFICATION'
+    }).sort({ createdAt: -1 }).lean();
     const paymentByAppointmentId = new Map();
     payments.forEach((payment) => {
       const key = String(payment.appointmentId);
@@ -2232,7 +2246,11 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    if (appointment.status !== 'Pending Verification') {
+    const payment = await Payment.findOne({
+      appointmentId: appointment._id,
+      status: 'PENDING_VERIFICATION'
+    }).sort({ createdAt: -1 });
+    if (!payment) {
       return res.status(400).json({ message: 'This appointment is not pending verification.' });
     }
 
@@ -2243,12 +2261,8 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
 
     const center = await Center.findById(appointment.centerId);
 
-    // Find and update the associated Payment document
-    const payment = await Payment.findOne({ appointmentId: appointment._id }).sort({ createdAt: -1 });
-    if (payment) {
-      payment.status = 'SUCCESS';
-      await payment.save();
-    }
+    payment.status = 'SUCCESS';
+    await payment.save();
 
     if (appointment.freeApplicationVerificationStatus === 'PENDING') {
       appointment.paymentStatus = 'Paid';
@@ -2349,7 +2363,7 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
 
     // const mailOptions = {
     //   to: recipients.join(', '),
-    //   subject: 'Appointment Confirmation – Dream Catcher Immigrations',
+    //   subject: 'Appointment Confirmation Letter',
     //   html: `
     //     <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
     //       <h2 style="color: #0c2340; border-bottom: 2px solid #dfa015; padding-bottom: 15px; margin-top: 0;">Appointment Confirmed</h2>
@@ -2453,7 +2467,9 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
       : null;
     const countryName = center && center.countryName ? center.countryName : 'Portugal';
     const centerCity = center && center.city ? center.city : 'New Delhi';
-    const centerDisplayName = center && center.name ? center.name : `${centerCity} VFS center`;
+    const portalName = 'Dream Catcher Immigrations B2B Visa Booking Portal';
+    const centerDisplayName = (center && center.name ? center.name : `${centerCity} Visa Application Centre`)
+      .replace(/\bVFS(?:\s+Global)?\b/gi, portalName);
     const applicantName = primaryApplicant
       ? `${primaryApplicant.firstName || ''} ${primaryApplicant.lastName || ''}`.trim().toUpperCase()
       : 'CUSTOMER';
@@ -2463,20 +2479,16 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
     const visaCategory = primaryApplicant && primaryApplicant.visaCategory
       ? primaryApplicant.visaCategory
       : 'Standard';
-    const appointmentDateText = `${new Date(appointment.bookingDate).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    })} at ${appointment.bookingTime}`;
+    const appointmentDateText = 'To Be Scheduled';
 
     const mailOptions = {
       to: recipients,
-      subject: `Manual Appointment - ${centerCity} - ${countryName}`,
+      subject: APPOINTMENT_CONFIRMATION_SUBJECT,
       html: `
         <div style="font-family: Georgia, 'Times New Roman', serif; color: #000; max-width: 760px; margin: 0 auto; padding: 24px 18px; font-size: 18px; line-height: 1.08;">
           <p style="margin: 0 0 28px 0;">Dear Customer,</p>
 
-          <p style="margin: 0 0 18px 0;">Greetings from the VFS Global ${countryName} Visa Helpdesk.</p>
+          <p style="margin: 0 0 18px 0;">Greetings from the ${portalName} ${countryName} Visa Helpdesk.</p>
 
           <p style="margin: 0 0 18px 0;">
             We would like to inform you that as per the update received from our dedicated team, your appointment has been scheduled at <strong>${centerDisplayName}</strong> as per the below mentioned details:
@@ -2500,7 +2512,7 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
           <p style="margin: 0 0 22px 0;">We value your time and patience.</p>
 
           <p style="margin: 0 0 18px 0;">
-            Important Announcement - VFS offers a wide array of value-added services like Premium Lounge, SMS, Courier, Photocopy &amp; Photo Booth Facility. Please speak to your Customer Support Agent for more details from Monday to Friday between 8 AM till 5 PM. Please note that the use of value-added services will not facilitate or provide priority for your visa application process at VFS Global visa application Center.
+            Important Announcement - ${portalName} offers a wide array of value-added services like Premium Lounge, SMS, Courier, Photocopy &amp; Photo Booth Facility. Please speak to your Customer Support Agent for more details from Monday to Friday between 8 AM till 5 PM. Please note that the use of value-added services will not facilitate or provide priority for your visa application process at the visa application centre.
           </p>
 
           <p style="margin: 0 0 18px 0;">
@@ -2508,17 +2520,17 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
           </p>
 
           <p style="margin: 0 0 18px 0;">
-            In case of further assistance, please feel free to contact us at 022-67866077, Timings: 08:00-17:00. You may visit our website: <a href="https://visa.vfsglobal.com/ind/en/prt" target="_blank" style="color: #2f6f73; text-decoration: underline;">https://visa.vfsglobal.com/ind/en/prt</a> or you can write to us at our email address <a href="mailto:infonorth.ptin@vishelpline.com" style="color: #2f6f73; text-decoration: underline;">infonorth.ptin@vishelpline.com</a>
+            In case of further assistance, please feel free to contact us at 022-67866077, Timings: 08:00-17:00, or write to us at <a href="mailto:infonorth.ptin@vishelpline.com" style="color: #2f6f73; text-decoration: underline;">infonorth.ptin@vishelpline.com</a>
           </p>
 
-          <p style="margin: 0 0 18px 0;">For any complaints, suggestions or feedback, please <a href="#" style="color: #2f6f73; text-decoration: underline;">Click here</a></p>
+          <p style="margin: 0 0 18px 0;">For any complaints, suggestions or feedback, please contact our support team.</p>
 
           <p style="margin: 0 0 18px 0;">Best Regards,</p>
           <p style="margin: 0 0 22px 0;">${countryName} Visa Help Desk</p>
 
-          <p style="margin: 0;">VFS GLOBAL<br/>EST. 2001 | Partnering Governments. Providing Solutions.</p>
+          <p style="margin: 0;">${portalName}<br/>B2B Visa Booking Services</p>
 
-          <p style="margin: 22px 0 0 0;">${countryName} Visa Helpline: 022 67866077 | <a href="mailto:infonorth.ptin@vishelpline.com" style="color: #2f6f73; text-decoration: underline;">infonorth.ptin@vishelpline.com</a> / <a href="https://visa.vfsglobal.com/ind/en/prt/" target="_blank" style="color: #2f6f73; text-decoration: underline;">https://visa.vfsglobal.com/ind/en/prt/</a></p>
+          <p style="margin: 22px 0 0 0;">${countryName} Visa Helpline: 022 67866077 | <a href="mailto:infonorth.ptin@vishelpline.com" style="color: #2f6f73; text-decoration: underline;">infonorth.ptin@vishelpline.com</a></p>
         </div>
       `,
       attachments: [
@@ -2528,8 +2540,10 @@ router.post('/payments-verification/:id/approve', protect, authorize('SUPER_ADMI
         }
       ]
     };
+    mailOptions.html = buildAppointmentConfirmationHtml({ appointment, center });
+
     try {
-      await mailService.sendMail(mailOptions, `Info on ${countryName} Visa in India`);
+      await mailService.sendMail(mailOptions, APPOINTMENT_CONFIRMATION_SENDER_NAME);
       confirmationEmailSent = true;
     } catch (mailError) {
       console.error('[admin route approve payment] Confirmation email delivery failed:', {
@@ -2563,7 +2577,12 @@ router.post('/payments-verification/:id/reject', protect, authorize('SUPER_ADMIN
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    if (appointment.status !== 'Pending Verification') {
+    const Payment = require('../models/Payment');
+    const payment = await Payment.findOne({
+      appointmentId: appointment._id,
+      status: 'PENDING_VERIFICATION'
+    }).sort({ createdAt: -1 });
+    if (!payment) {
       return res.status(400).json({ message: 'This appointment is not pending verification.' });
     }
 
@@ -2572,13 +2591,8 @@ router.post('/payments-verification/:id/reject', protect, authorize('SUPER_ADMIN
       return res.status(404).json({ message: 'Slot not found' });
     }
 
-    // Update payment document status
-    const Payment = require('../models/Payment');
-    const payment = await Payment.findOne({ appointmentId: appointment._id });
-    if (payment) {
-      payment.status = 'REJECTED';
-      await payment.save();
-    }
+    payment.status = 'REJECTED';
+    await payment.save();
 
     // Set appointment status to Payment Rejected
     appointment.status = 'Payment Rejected';

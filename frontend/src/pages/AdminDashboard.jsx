@@ -779,7 +779,14 @@ export default function AdminDashboard() {
   };
 
   const fetchAuditLogs = async () => {
-    await refetchAuditLogs();
+    try {
+      await refetchAuditLogs();
+    } catch (err) {
+      // RTK Query can reject refetch during the component's initial mount,
+      // before its subscription has started. Audit logs load automatically,
+      // so this must not abort the rest of the dashboard refresh.
+      console.warn('Audit log refresh was deferred until its query is ready.');
+    }
   };
 
   const fetchPendingPayments = async () => {
@@ -787,7 +794,7 @@ export default function AdminDashboard() {
     setLoadingPayments(true);
     setPaymentActionError('');
     try {
-      const res = await apiFetch(`${API_ROOT_URL}/admin/payments-verification`, {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/payments-verification?page=1&limit=100`, {
       });
       const data = await res.json();
       if (res.ok) {
@@ -1378,16 +1385,21 @@ export default function AdminDashboard() {
   const handleGlobalRefresh = async () => {
     setLoading(true);
     setError('');
-    await fetchAdminMasterData();
-    await fetchAdminUsers();
-    await fetchCenters();
-    await fetchBlockingStats();
-    await fetchClosures();
-    await fetchAdminSlots();
-    await fetchAuditLogs();
-    await fetchPendingPayments();
-    await fetchBlocksHistory();
-    setLoading(false);
+    try {
+      await Promise.allSettled([
+        fetchAdminMasterData(),
+        fetchAdminUsers(),
+        fetchCenters(),
+        fetchBlockingStats(),
+        fetchClosures(),
+        fetchAdminSlots(),
+        fetchAuditLogs(),
+        fetchPendingPayments(),
+        fetchBlocksHistory(),
+      ]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
