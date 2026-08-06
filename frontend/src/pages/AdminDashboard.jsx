@@ -269,6 +269,14 @@ export default function AdminDashboard() {
   const [loadingAdminFreeSlots, setLoadingAdminFreeSlots] = useState(false);
   const [grantingFreeSubscriptionId, setGrantingFreeSubscriptionId] = useState('');
   const [adminFreeSlotsError, setAdminFreeSlotsError] = useState('');
+  const [subscriptionSettingsForm, setSubscriptionSettingsForm] = useState({
+    planName: 'Professional Plan',
+    basePrice: 10000,
+    gstPercent: 18,
+    durationDays: 30
+  });
+  const [subscriptionSettingsStatus, setSubscriptionSettingsStatus] = useState('');
+  const [loadingSubscriptionSettings, setLoadingSubscriptionSettings] = useState(false);
 
   // Fetch Centers
   const fetchCenters = async () => {
@@ -1055,6 +1063,67 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchSubscriptionSettings = async () => {
+    if (!user || !isSuperAdmin) return;
+    setLoadingSubscriptionSettings(true);
+    setSubscriptionSettingsStatus('');
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/settings/subscription`);
+      const data = await res.json();
+      if (!res.ok) {
+        setSubscriptionSettingsStatus(data.message || 'Failed to fetch subscription settings.');
+        return;
+      }
+      setSubscriptionSettingsForm({
+        planName: data.planName || 'Professional Plan',
+        basePrice: Number(data.basePrice || 10000),
+        gstPercent: Number(data.gstPercent ?? 18),
+        durationDays: Number(data.durationDays || 30)
+      });
+    } catch (err) {
+      console.error(err);
+      setSubscriptionSettingsStatus('Network error while fetching subscription settings.');
+    } finally {
+      setLoadingSubscriptionSettings(false);
+    }
+  };
+
+  const handleSaveSubscriptionSettings = async () => {
+    if (!user || !isSuperAdmin) return;
+    setLoadingSubscriptionSettings(true);
+    setSubscriptionSettingsStatus('');
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/settings/subscription`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planName: subscriptionSettingsForm.planName,
+          basePrice: Number(subscriptionSettingsForm.basePrice),
+          gstPercent: Number(subscriptionSettingsForm.gstPercent),
+          durationDays: Number(subscriptionSettingsForm.durationDays)
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSubscriptionSettingsStatus(data.message || 'Failed to update subscription settings.');
+        return;
+      }
+      const saved = data.settings || data;
+      setSubscriptionSettingsForm({
+        planName: saved.planName || 'Professional Plan',
+        basePrice: Number(saved.basePrice || 10000),
+        gstPercent: Number(saved.gstPercent ?? 18),
+        durationDays: Number(saved.durationDays || 30)
+      });
+      setSubscriptionSettingsStatus('Subscription settings updated successfully.');
+    } catch (err) {
+      console.error(err);
+      setSubscriptionSettingsStatus('Network error while updating subscription settings.');
+    } finally {
+      setLoadingSubscriptionSettings(false);
+    }
+  };
+
   const fetchAdminFreeSubscriptionSlots = async () => {
     if (!user || !isSuperAdmin) return;
     setLoadingAdminFreeSlots(true);
@@ -1562,6 +1631,9 @@ export default function AdminDashboard() {
       fetchSubPayments();
       fetchFreeSubscriptionOffer();
     }
+    if (activeTab === 'subscriptionSettings') {
+      fetchSubscriptionSettings();
+    }
     if (activeTab === 'slots') {
       fetchBlocksHistory();
     }
@@ -1872,6 +1944,7 @@ export default function AdminDashboard() {
     paymentVerification: "Review manual UPI payment proofs uploaded by agents for visa bookings. Approve valid payments to finalize slots, or reject incorrect transaction IDs.",
     freeApplications: "Review one-applicant free credit claims. Approve only after any payable balance has been verified.",
     subPayments: "Verify monthly portal access payments from travel agencies. Approving a subscription unlocks booking and slot search capabilities for that agency.",
+    subscriptionSettings: "Configure the live agent subscription plan name, base price, GST percent, and billing duration used for new purchase and renewal requests.",
     slots: "Configure daily visa slot capacity and block out specific dates or time slots for maintenance. Changes instantly update availability for booking agents.",
     closures: "Declare partial or full closures for specific visa centers due to emergencies (e.g. weather, outages). This automatically blocks slots and logs reschedule requests.",
     bulkupload: "Upload a CSV file containing slot configurations to update capacities in bulk. Use this when initializing new schedules or major seasonal capacity updates.",
@@ -1997,6 +2070,7 @@ export default function AdminDashboard() {
             { id: 'paymentVerification', label: 'Payment Verification', icon: <CreditCard size={16} /> },
             { id: 'freeApplications', label: 'Free Application Verification', icon: <CheckCircle size={16} /> },
             { id: 'subPayments', label: 'Subscription Payments', icon: <CreditCard size={16} /> },
+            { id: 'subscriptionSettings', label: 'Subscription Settings', icon: <Edit size={16} /> },
             { id: 'slots', label: 'Slot & Capacity Management', icon: <Calendar size={16} /> },
             { id: 'closures', label: 'Emergency Closures', icon: <ShieldAlert size={16} /> },
             { id: 'bulkupload', label: 'Bulk Slot Upload', icon: <Upload size={16} /> },
@@ -3110,6 +3184,110 @@ export default function AdminDashboard() {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Subscription Settings */}
+        {activeTab === 'subscriptionSettings' && (
+          <div className="card" style={{ padding: '30px', maxWidth: '760px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '22px' }}>
+              <h3 style={{ margin: 0, color: '#0c2340', fontWeight: 'bold', border: 'none', padding: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Agent Subscription Settings
+                <InfoTooltip text={tooltipExplanations.subscriptionSettings} />
+              </h3>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={fetchSubscriptionSettings}
+                disabled={loadingSubscriptionSettings}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <RefreshCw size={14} className={loadingSubscriptionSettings ? 'spin-animation' : ''} />
+                Refresh
+              </button>
+            </div>
+
+            {subscriptionSettingsStatus && (
+              <div style={{
+                marginBottom: '18px',
+                padding: '12px',
+                borderRadius: '6px',
+                backgroundColor: subscriptionSettingsStatus.includes('success') ? '#d1fae5' : '#fee2e2',
+                color: subscriptionSettingsStatus.includes('success') ? '#047857' : '#b91c1c',
+                fontSize: '13px',
+                fontWeight: 700
+              }}>
+                {subscriptionSettingsStatus}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '18px' }}>
+              <label style={{ display: 'block' }}>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '6px' }}>Plan Name</span>
+                <input
+                  type="text"
+                  value={subscriptionSettingsForm.planName}
+                  onChange={(e) => setSubscriptionSettingsForm((prev) => ({ ...prev, planName: e.target.value }))}
+                  style={{ width: '100%', padding: '11px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '6px' }}>Base Price (INR)</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={subscriptionSettingsForm.basePrice}
+                  onChange={(e) => setSubscriptionSettingsForm((prev) => ({ ...prev, basePrice: e.target.value }))}
+                  style={{ width: '100%', padding: '11px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '6px' }}>GST Percent</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={subscriptionSettingsForm.gstPercent}
+                  onChange={(e) => setSubscriptionSettingsForm((prev) => ({ ...prev, gstPercent: e.target.value }))}
+                  style={{ width: '100%', padding: '11px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#334155', marginBottom: '6px' }}>Duration Days</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={subscriptionSettingsForm.durationDays}
+                  onChange={(e) => setSubscriptionSettingsForm((prev) => ({ ...prev, durationDays: e.target.value }))}
+                  style={{ width: '100%', padding: '11px', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                />
+              </label>
+            </div>
+
+            <div style={{ marginTop: '22px', padding: '16px', border: '1px solid #dbe4f0', borderRadius: '8px', backgroundColor: '#f8fafc', color: '#334155', fontSize: '13px', fontWeight: 700 }}>
+              {(() => {
+                const base = Number(subscriptionSettingsForm.basePrice || 0);
+                const gst = Number(subscriptionSettingsForm.gstPercent || 0);
+                const gstAmount = +(base * (gst / 100)).toFixed(2);
+                const total = +(base + gstAmount).toFixed(2);
+                return `Preview: INR ${base.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} + INR ${gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GST = INR ${total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} for ${subscriptionSettingsForm.durationDays} days`;
+              })()}
+            </div>
+
+            <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={handleSaveSubscriptionSettings}
+                disabled={loadingSubscriptionSettings}
+                className="btn btn-navy-gradient"
+                style={{ padding: '12px 22px', fontWeight: 800, borderRadius: '6px' }}
+              >
+                {loadingSubscriptionSettings ? 'Saving...' : 'Save Settings'}
+              </button>
             </div>
           </div>
         )}

@@ -1,14 +1,19 @@
 const mongoose = require('mongoose');
 
-// Single source of truth for plan pricing — change here only, never trust client-sent amounts
-const PLAN_AMOUNT = 999;
+// Fallback defaults for legacy/manual documents. New subscriptions snapshot live PlatformSettings values.
+const PLAN_AMOUNT = 10000;
 const GST_RATE = 0.18;
+const GST_PERCENT = 18;
+const DEFAULT_DURATION_DAYS = 30;
 const GST_AMOUNT = +(PLAN_AMOUNT * GST_RATE).toFixed(2);
 const TOTAL_AMOUNT = +(PLAN_AMOUNT + GST_AMOUNT).toFixed(2);
 
 const subscriptionSchema = new mongoose.Schema({
   agentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Agent', required: true, index: true },
-  planName: { type: String, default: 'Professional Agent Plan' },
+  planName: { type: String, default: 'Professional Plan' },
+  basePrice: { type: Number, default: PLAN_AMOUNT },
+  gstPercent: { type: Number, default: GST_PERCENT },
+  durationDays: { type: Number, default: DEFAULT_DURATION_DAYS },
   planAmount: { type: Number, default: PLAN_AMOUNT },
   gstAmount: { type: Number, default: GST_AMOUNT },
   totalAmount: { type: Number, default: TOTAL_AMOUNT },

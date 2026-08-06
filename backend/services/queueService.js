@@ -125,7 +125,7 @@ exports.initQueueService = (io) => {
           await AgentNotification.create({
             agentId: agent._id,
             title: 'Subscription Expired',
-            message: 'Your Professional Agent Plan has expired. Please renew your subscription to resume client bookings.',
+            message: `Your ${sub.planName || 'subscription plan'} has expired. Please renew your subscription to resume client bookings.`,
             type: 'SUBSCRIPTION_EXPIRED'
           });
 
@@ -147,7 +147,7 @@ exports.initQueueService = (io) => {
                 <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #fee2e2; border-radius: 8px;">
                   <h2 style="color: #b91c1c; border-bottom: 2px solid #ef4444; padding-bottom: 10px;">Subscription Expired</h2>
                   <p>Dear ${agent.ownerName},</p>
-                  <p>Your subscription for <strong>Professional Agent Plan</strong> expired on ${sub.expiryDate.toLocaleDateString('en-GB')}.</p>
+                  <p>Your subscription for <strong>${sub.planName || 'subscription plan'}</strong> expired on ${sub.expiryDate.toLocaleDateString('en-GB')}.</p>
                   <p>Please renew your subscription to resume booking visa appointments for your clients.</p>
                   <hr style="border: 0; border-top: 1px solid #fee2e2; margin: 20px 0;" />
                   <p style="font-size: 11px; color: #94a3b8; text-align: center;">This is an automated system email. Please do not reply.</p>

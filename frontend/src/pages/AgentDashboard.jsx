@@ -22,20 +22,39 @@ const UPI_CONFIG = {
   currency: 'INR',
 };
 
-const SUBSCRIPTION_PLAN_AMOUNT = 10000;
-const SUBSCRIPTION_GST_RATE = 0.18;
-const SUBSCRIPTION_CYCLE_DAYS = 30;
+const DEFAULT_SUBSCRIPTION_SETTINGS = {
+  planName: 'Professional Plan',
+  basePrice: 10000,
+  gstPercent: 18,
+  durationDays: 30,
+};
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NOTIFICATIONS_PAGE_SIZE = 5;
 const READ_NOTIFICATIONS_STORAGE_KEY = 'readNotificationIds';
 
-function getSubscriptionPricing(discountEligible) {
-  const discountAmount = discountEligible ? +(SUBSCRIPTION_PLAN_AMOUNT * 0.10).toFixed(2) : 0;
-  const planAmount = +(SUBSCRIPTION_PLAN_AMOUNT - discountAmount).toFixed(2);
-  const gstAmount = +(planAmount * SUBSCRIPTION_GST_RATE).toFixed(2);
+function getSubscriptionPricing(settings, discountEligible) {
+  const basePrice = Number(settings?.basePrice || DEFAULT_SUBSCRIPTION_SETTINGS.basePrice);
+  const gstPercent = Number(settings?.gstPercent ?? DEFAULT_SUBSCRIPTION_SETTINGS.gstPercent);
+  const discountAmount = discountEligible ? +(basePrice * 0.10).toFixed(2) : 0;
+  const planAmount = +(basePrice - discountAmount).toFixed(2);
+  const gstAmount = +(planAmount * (gstPercent / 100)).toFixed(2);
   const totalAmount = +(planAmount + gstAmount).toFixed(2);
   return { planAmount, gstAmount, totalAmount, discountApplied: discountEligible, discountAmount };
 }
+
+const formatINR = (amount) => `INR ${Number(amount || 0).toLocaleString('en-IN', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}`;
+
+const PLAN_FEATURES = [
+  '98.9% Visa Approval Success Rate',
+  'Unlimited Slot Searches',
+  'Priority Slot Reservation Locking',
+  'Central Agent Client Manager',
+  'Fast Document Upload & Tracking',
+  'Downloadable GST Invoices',
+];
 
 const COLORS = {
   navy: '#0c2340',
@@ -53,6 +72,13 @@ const STATUS_COLOR_MAP = {
   Blocked: COLORS.red,
   'Verification Pending': COLORS.gold,
   Expired: COLORS.red,
+};
+
+const isExpiredStatus = (status) => ['Expired', 'Subscription Expired'].includes(status);
+
+const hasSubscriptionExpired = (sub) => {
+  if (!sub || sub.subscriptionStatus !== 'Active' || !sub.expiryDate) return false;
+  return new Date(sub.expiryDate).getTime() <= Date.now();
 };
 
 const NAV_ITEMS = [
@@ -130,6 +156,102 @@ function AlertBanner({ color, icon, title, children }) {
   );
 }
 
+function SubscriptionPlanCard({ settings, pricing, actionLabel, onAction, intro }) {
+  const planName = settings?.planName || DEFAULT_SUBSCRIPTION_SETTINGS.planName;
+  const basePrice = Number(settings?.basePrice || DEFAULT_SUBSCRIPTION_SETTINGS.basePrice);
+  const gstPercent = Number(settings?.gstPercent ?? DEFAULT_SUBSCRIPTION_SETTINGS.gstPercent);
+  const durationDays = Number(settings?.durationDays || DEFAULT_SUBSCRIPTION_SETTINGS.durationDays);
+  return (
+    <div style={{
+      border: `2px solid ${COLORS.gold}`,
+      borderRadius: '10px',
+      padding: '44px 30px 34px',
+      backgroundColor: '#fff',
+      position: 'relative',
+      maxWidth: '560px',
+      margin: '0 auto 28px',
+      boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
+    }}>
+      <div style={{
+        position: 'absolute',
+        top: '-16px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        backgroundColor: COLORS.gold,
+        color: COLORS.navy,
+        borderRadius: '999px',
+        padding: '8px 22px',
+        fontSize: '12px',
+        fontWeight: '900',
+        textTransform: 'uppercase',
+      }}>
+        Most Popular
+      </div>
+
+      <div style={{ textAlign: 'center' }}>
+        <h3 style={{ margin: '0 0 14px', color: COLORS.navy, fontSize: '24px', fontWeight: '900' }}>
+          {planName}
+        </h3>
+        <p style={{ margin: '0 0 22px', color: COLORS.slate, fontSize: '14px' }}>
+          {intro || 'Best for active visa processing centers'}
+        </p>
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#dcfce7',
+          color: '#15803d',
+          borderRadius: '6px',
+          padding: '8px 14px',
+          fontSize: '13px',
+          fontWeight: '800',
+          marginBottom: '34px',
+        }}>
+          98.9% Visa Approval Success Rate
+        </span>
+
+        <div style={{ marginBottom: '12px' }}>
+          <span style={{ color: COLORS.navy, fontSize: '44px', lineHeight: 1, fontWeight: '900' }}>
+            INR {basePrice.toLocaleString('en-IN')}
+          </span>
+          <span style={{ color: COLORS.slate, fontSize: '15px', fontWeight: '700' }}> + GST / {durationDays} days</span>
+        </div>
+        <p style={{ margin: '0 0 30px', color: COLORS.slate, fontSize: '13px' }}>
+          Total Billed: {formatINR(pricing.totalAmount)} ({formatINR(pricing.planAmount)} base + {gstPercent}% GST)
+        </p>
+
+        <button
+          type="button"
+          onClick={onAction}
+          style={{
+            width: '100%',
+            border: 'none',
+            borderRadius: '8px',
+            background: `linear-gradient(135deg, #263f9b 0%, ${COLORS.navy} 100%)`,
+            color: '#fff',
+            padding: '17px 20px',
+            fontSize: '16px',
+            fontWeight: '900',
+            cursor: 'pointer',
+            marginBottom: '28px',
+          }}
+        >
+          {actionLabel}
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gap: '16px' }}>
+        {PLAN_FEATURES.map((feature) => (
+          <div key={feature} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', color: COLORS.navy, fontSize: '14px', fontWeight: '700' }}>
+            <CheckCircle2 size={18} style={{ color: COLORS.green, flexShrink: 0, marginTop: '1px' }} />
+            <span>{feature}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CopyButton({ text, message }) {
   return (
     <button
@@ -158,6 +280,7 @@ export default function AgentDashboard() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('userInfo')));
   const [activeTab, setActiveTab] = useState('subscription');
   const [subscription, setSubscription] = useState(null);
+  const [subscriptionSettings, setSubscriptionSettings] = useState(DEFAULT_SUBSCRIPTION_SETTINGS);
   const [invoices, setInvoices] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -182,7 +305,7 @@ export default function AgentDashboard() {
   const [modalError, setModalError] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
   const [accessAlertModal, setAccessAlertModal] = useState(null); // null | 'NoSub' | 'Pending' | 'Expired'
-  const subscriptionPricing = getSubscriptionPricing(user?.discountEligible === true);
+  const subscriptionPricing = getSubscriptionPricing(subscriptionSettings, user?.discountEligible === true);
 
   // ---- notifications: unread count + date filter + pagination --------
   const unreadNotificationsCount = notifications.filter((n) => !readNotificationIds.includes(n._id)).length;
@@ -241,7 +364,7 @@ export default function AgentDashboard() {
       }
       if (res.ok) {
         const data = await res.json();
-        if (data?.length) setSubscription(data[0]);
+        setSubscription(data?.length ? data[0] : null);
       } else {
         console.error('Failed to fetch subscription:', res.statusText);
       }
@@ -249,6 +372,23 @@ export default function AgentDashboard() {
       console.error('Error fetching subscription:', err);
     }
   }, [authedFetch, user]);
+
+  const fetchSubscriptionSettings = useCallback(async () => {
+    try {
+      const res = await apiFetch(`${API_BASE}/subscription/settings`);
+      if (res.ok) {
+        const data = await res.json();
+        setSubscriptionSettings({
+          planName: data.planName || DEFAULT_SUBSCRIPTION_SETTINGS.planName,
+          basePrice: Number(data.basePrice || DEFAULT_SUBSCRIPTION_SETTINGS.basePrice),
+          gstPercent: Number(data.gstPercent ?? DEFAULT_SUBSCRIPTION_SETTINGS.gstPercent),
+          durationDays: Number(data.durationDays || DEFAULT_SUBSCRIPTION_SETTINGS.durationDays),
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching subscription settings:', err);
+    }
+  }, []);
 
   const fetchInvoices = useCallback(async () => {
     if (!user) return;
@@ -384,10 +524,11 @@ export default function AgentDashboard() {
     }
     fetchUserProfile();
     fetchSubscriptionDetails();
+    fetchSubscriptionSettings();
     fetchInvoices();
     fetchBookings();
     fetchNotifications();
-  }, [user, fetchSubscriptionDetails, fetchInvoices, fetchBookings, fetchNotifications]);
+  }, [user, fetchSubscriptionDetails, fetchSubscriptionSettings, fetchInvoices, fetchBookings, fetchNotifications]);
 
   if (!user) return null; // navigation to /login already triggered above
 
@@ -524,11 +665,12 @@ export default function AgentDashboard() {
   };
 
   const getSubscriptionCycleStatus = () => {
+    const configuredDurationDays = Number(subscription?.durationDays || subscriptionSettings.durationDays || DEFAULT_SUBSCRIPTION_SETTINGS.durationDays);
     if (!subscription || subscription.subscriptionStatus !== 'Active' || !subscription.expiryDate) {
       return {
         daysRemaining: 0,
         daysUsed: 0,
-        totalDays: SUBSCRIPTION_CYCLE_DAYS,
+        totalDays: configuredDurationDays,
         progressPercent: 100,
         isExpired: true,
         valueColor: COLORS.red,
@@ -540,8 +682,8 @@ export default function AgentDashboard() {
     const expiryDate = new Date(subscription.expiryDate);
     const startDate = subscription.startDate
       ? new Date(subscription.startDate)
-      : new Date(expiryDate.getTime() - SUBSCRIPTION_CYCLE_DAYS * MS_PER_DAY);
-    const totalDays = Math.max(1, Math.round((expiryDate - startDate) / MS_PER_DAY) || SUBSCRIPTION_CYCLE_DAYS);
+      : new Date(expiryDate.getTime() - configuredDurationDays * MS_PER_DAY);
+    const totalDays = Math.max(1, Math.round((expiryDate - startDate) / MS_PER_DAY) || configuredDurationDays);
     const daysRemaining = Math.max(0, Math.ceil((expiryDate - now) / MS_PER_DAY));
     const daysUsed = Math.min(totalDays, Math.max(0, totalDays - daysRemaining));
     const progressPercent = Math.min(100, Math.max(0, (daysUsed / totalDays) * 100));
@@ -560,6 +702,11 @@ export default function AgentDashboard() {
   };
 
   const subscriptionCycle = getSubscriptionCycleStatus();
+  const subscriptionExpired = isExpiredStatus(user.status) || hasSubscriptionExpired(subscription);
+  const hasPendingSubscription =
+    user.status === 'Verification Pending' || subscription?.subscriptionStatus === 'Verification Pending';
+  const hasActiveSubscription =
+    subscription?.subscriptionStatus === 'Active' && !subscriptionExpired && user.status === 'Active';
 
   const openPaymentModal = (type) => {
     setPaymentType(type);
@@ -639,7 +786,7 @@ export default function AgentDashboard() {
             <StatusPill status={user.status} />
           </div>
 
-          {user.status === 'Active' ? (
+          {hasActiveSubscription ? (
             <Link to="/book" className="btn" style={{
               backgroundColor: COLORS.gold, color: COLORS.navy, fontWeight: 'bold', padding: '10px 20px',
               borderRadius: '4px', textDecoration: 'none', fontSize: '14px', display: 'inline-flex',
@@ -650,9 +797,9 @@ export default function AgentDashboard() {
           ) : (
             <div
               title={
-                user.status === 'Verification Pending' || (subscription && subscription.subscriptionStatus === 'Verification Pending')
+                hasPendingSubscription
                   ? 'Waiting for Admin Payment Verification'
-                  : ['Expired', 'Subscription Expired'].includes(user.status)
+                  : subscriptionExpired
                     ? 'Subscription Expired - Renew to Continue'
                     : 'Purchase Subscription for Access'
               }
@@ -660,9 +807,9 @@ export default function AgentDashboard() {
               <button
                 type="button"
                 onClick={() => {
-                  if (user.status === 'Verification Pending' || (subscription && subscription.subscriptionStatus === 'Verification Pending')) {
+                  if (hasPendingSubscription) {
                     setAccessAlertModal('Pending');
-                  } else if (['Expired', 'Subscription Expired'].includes(user.status)) {
+                  } else if (subscriptionExpired) {
                     setAccessAlertModal('Expired');
                   } else {
                     setAccessAlertModal('NoSub');
@@ -755,7 +902,7 @@ export default function AgentDashboard() {
                 </AlertBanner>
               )}
 
-              {subscription && user.status === 'Active' && (
+              {subscription && subscription.subscriptionStatus === 'Active' && (
                 <div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px' }}>
                     <InfoCard label="Current Tier" value={subscription.planName} />
@@ -777,7 +924,7 @@ export default function AgentDashboard() {
                       }} />
                     </div>
                     <p style={{ margin: '10px 0 0', fontSize: '13px', color: COLORS.slate }}>
-                      Day {Math.min(subscriptionCycle.totalDays, subscriptionCycle.daysUsed + 1)} of {subscriptionCycle.totalDays}. The count reduces automatically each day from 30 to 0.
+                      Day {Math.min(subscriptionCycle.totalDays, subscriptionCycle.daysUsed + 1)} of {subscriptionCycle.totalDays}. The count reduces automatically each day from {subscriptionCycle.totalDays} to 0.
                     </p>
                   </div>
 
@@ -786,15 +933,21 @@ export default function AgentDashboard() {
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px',
                   }}>
                     <div>
-                      <h4 style={{ margin: '0 0 5px 0', color: COLORS.navy, fontWeight: '700' }}>Extend Your Booking Cycle</h4>
-                      <p style={{ margin: 0, fontSize: '13px', color: COLORS.slate }}>Renew your active subscription for another month.</p>
+                      <h4 style={{ margin: '0 0 5px 0', color: COLORS.navy, fontWeight: '700' }}>
+                        {subscriptionExpired ? 'Renewal Required' : 'Extend Your Booking Cycle'}
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '13px', color: COLORS.slate }}>
+                        {subscriptionExpired
+                          ? 'Your subscription has ended. Renew now to unlock booking access again.'
+                          : 'Renew your active subscription for another cycle.'}
+                      </p>
                     </div>
                     <button
                       onClick={() => openPaymentModal('renew')}
                       className="btn"
                       style={{ padding: '8px 18px', backgroundColor: COLORS.navy, color: '#fff', border: 'none', borderRadius: '4px', fontWeight: '600', cursor: 'pointer' }}
                     >
-                      Renew Now
+                      {subscriptionExpired ? 'Renew Subscription' : 'Renew Now'}
                     </button>
                   </div>
                 </div>
@@ -868,38 +1021,30 @@ export default function AgentDashboard() {
                   <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '20px', marginTop: '20px' }}>
                     <h5 style={{ margin: '0 0 15px 0', color: COLORS.navy, fontWeight: 'bold' }}>Resubmit UPI Proof</h5>
                     <p style={{ fontSize: '13px', color: COLORS.slate, marginBottom: '15px' }}>Please check your transaction credentials and upload a fresh screenshot.</p>
-                    <button
-                      onClick={() => openPaymentModal('purchase')}
-                      className="btn"
-                      style={{ padding: '10px 24px', backgroundColor: COLORS.red, color: '#fff', border: 'none', fontWeight: 'bold', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                      Resubmit Payment Proof
-                    </button>
+                    <SubscriptionPlanCard
+                      settings={subscriptionSettings}
+                      pricing={subscriptionPricing}
+                      actionLabel="Resubmit Payment Proof"
+                      onAction={() => openPaymentModal('purchase')}
+                      intro="Resubmit your Professional Plan payment proof for verification"
+                    />
                   </div>
                 </div>
               )}
 
-              {!subscription && !['Pending', 'Blocked', 'Active', 'Verification Pending'].includes(user.status) && (
-                <div style={{ border: `1px solid ${COLORS.red}`, backgroundColor: 'rgba(239, 68, 68, 0.05)', padding: '20px', borderRadius: '4px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: COLORS.red, fontWeight: 'bold' }}>Subscription Expired / Inactive</h4>
-                  <p style={{ margin: '0 0 20px 0', fontSize: '13.5px', color: '#555', lineHeight: '1.5' }}>
-                    You currently do not have an active subscription. Purchase a Professional Agent subscription plan
-                    for INR {getSubscriptionPricing(user.discountEligible === true).totalAmount.toFixed(2)} per month to start querying slots and booking clients.
-                  </p>
-                  <button
-                    onClick={() => openPaymentModal('purchase')}
-                    className="btn btn-secondary"
-                    style={{ padding: '12px 28px', backgroundColor: COLORS.red, color: '#fff', border: 'none', fontWeight: 'bold' }}
-                  >
-                    Purchase Subscription
-                  </button>
-                </div>
+              {(!subscription && !['Pending', 'Blocked', 'Verification Pending'].includes(user.status)) && (
+                <SubscriptionPlanCard
+                  settings={subscriptionSettings}
+                  pricing={subscriptionPricing}
+                  actionLabel="Subscribe & Start Booking"
+                  onAction={() => openPaymentModal('purchase')}
+                />
               )}
 
               <div style={{ borderTop: `1px solid ${COLORS.border}`, marginTop: '35px', paddingTop: '20px' }}>
                 <h4 style={{ color: COLORS.navy, fontWeight: '700', marginBottom: '10px', fontSize: '15px' }}>Important B2B Billing Details</h4>
                 <ul style={{ paddingLeft: '20px', fontSize: '13px', color: COLORS.slate, lineHeight: '1.6' }}>
-                  <li>Plan pricing is INR 10,000 + 18% GST per month. Referral discounts apply only to subscription purchase or renewal, never appointment fees.</li>
+                  <li>Plan pricing is {formatINR(subscriptionSettings.basePrice)} + {subscriptionSettings.gstPercent}% GST for {subscriptionSettings.durationDays} days. Referral discounts apply only to subscription purchase or renewal, never appointment fees.</li>
                   <li>Payments are verified manually using UPI transaction proofs within 5-10 minutes.</li>
                   <li>Invoices showing your agency name and GSTIN are generated instantly upon approval.</li>
                 </ul>
@@ -911,7 +1056,7 @@ export default function AgentDashboard() {
             <div className="glass-card-premium" style={{ padding: '30px', border: '1px solid rgba(12, 35, 64, 0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h3 style={{ ...styles.sectionTitle, margin: 0 }}>Client Appointment History</h3>
-                {user.status === 'Active' && (
+                {hasActiveSubscription && (
                   <Link to="/book" className="btn" style={{ padding: '6px 14px', fontSize: '13px', backgroundColor: COLORS.navy, color: '#fff', textDecoration: 'none', borderRadius: '4px' }}>
                     New Booking
                   </Link>
@@ -977,7 +1122,7 @@ export default function AgentDashboard() {
                         <th style={{ padding: '12px 8px' }}>Invoice No.</th>
                         <th style={{ padding: '12px 8px' }}>Date</th>
                         <th style={{ padding: '12px 8px' }}>Base Amt</th>
-                        <th style={{ padding: '12px 8px' }}>GST (18%)</th>
+                        <th style={{ padding: '12px 8px' }}>GST</th>
                         <th style={{ padding: '12px 8px' }}>Total Amt</th>
                         <th style={{ padding: '12px 8px', textAlign: 'center' }}>PDF</th>
                       </tr>
@@ -1514,7 +1659,7 @@ export default function AgentDashboard() {
               <div style={{ margin: '15px 0' }}>
                 <span style={{ fontSize: '28px', fontWeight: '800', color: COLORS.navy }}>INR {subscriptionPricing.totalAmount.toFixed(2)}</span>
                 <span style={{ fontSize: '12px', color: COLORS.slate, display: 'block', marginTop: '2px' }}>
-                  INR {subscriptionPricing.planAmount.toFixed(2)} + 18% GST
+                  INR {subscriptionPricing.planAmount.toFixed(2)} + {subscriptionSettings.gstPercent}% GST
                   {subscriptionPricing.discountApplied ? ` (10% referral discount saved INR ${subscriptionPricing.discountAmount.toFixed(2)})` : ''}
                 </span>
                 <span style={{ marginLeft: '8px' }}>

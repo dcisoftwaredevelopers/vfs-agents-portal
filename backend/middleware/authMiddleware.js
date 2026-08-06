@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const Agent = require('../models/Agent');
+const Subscription = require('../models/Subscription');
 const { AUTH_COOKIE_NAME } = require('../utils/authUtils');
 
 const getJwtSecret = () => {
@@ -86,7 +87,7 @@ const authorize = (...allowedRoles) => {
   };
 };
 
-const verifyActiveSubscription = (req, res, next) => {
+const verifyActiveSubscription = async (req, res, next) => {
   if (req.user && req.user.role === 'SUPER_ADMIN') {
     return next();
   }
@@ -98,7 +99,27 @@ const verifyActiveSubscription = (req, res, next) => {
   const status = req.user.status;
 
   if (status === 'Active') {
-    return next();
+    try {
+      const activeSub = await Subscription.findOne({
+        agentId: req.user._id,
+        subscriptionStatus: 'Active',
+        paymentStatus: 'Paid',
+        expiryDate: { $gt: new Date() }
+      }).select('_id expiryDate');
+
+      if (activeSub) {
+        req.activeSubscription = activeSub;
+        return next();
+      }
+
+      return res.status(403).json({
+        success: false,
+        message: 'Your subscription has expired. Please renew your subscription to continue booking visa appointments.',
+        status: 'Expired'
+      });
+    } catch (error) {
+      return res.status(500).json({ message: 'Unable to verify subscription status' });
+    }
   }
 
   let message = 'Purchase an active subscription to access visa booking.';
