@@ -9,37 +9,18 @@ const rewardService = require('../services/rewardService');
 const Appointment = require('../models/Appointment');
 const AuditLog = require('../models/AuditLog');
 const { validatePaymentProof } = require('../services/subscriptionPaymentSecurity');
+const {
+  getSubscriptionSettings,
+  calculateSubscriptionPricing,
+  buildSubscriptionSnapshot,
+} = require('../services/subscriptionSettingsService');
 
 const { tryCatch } = require('bullmq');
-
-// Single source of truth for plan pricing — must match the defaults in
-// models/Subscription.js. Never accept planAmount/gstAmount/totalAmount from
-// the client; always compute from this constant.
-const PLAN_AMOUNT = 999;
-const GST_RATE = 0.18;
-const SUBSCRIPTION_CYCLE_DAYS = 28;
-const GST_AMOUNT = +(PLAN_AMOUNT * GST_RATE).toFixed(2);
-const TOTAL_AMOUNT = +(PLAN_AMOUNT + GST_AMOUNT).toFixed(2);
 
 function getRequestMeta(req) {
   return {
     ipAddress: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
     userAgent: req.headers['user-agent'] || ''
-  };
-}
-
-function calculateSubscriptionPricing(discountEligible) {
-  const discountAmount = discountEligible ? +(PLAN_AMOUNT * 0.10).toFixed(2) : 0;
-  const planAmount = +(PLAN_AMOUNT - discountAmount).toFixed(2);
-  const gstAmount = +(planAmount * GST_RATE).toFixed(2);
-  const totalAmount = +(planAmount + gstAmount).toFixed(2);
-
-  return {
-    planAmount,
-    gstAmount,
-    totalAmount,
-    discountApplied: discountEligible,
-    discountAmount,
   };
 }
 
@@ -56,7 +37,10 @@ async function submitProof(req, res, { activity, notificationTitle, notification
     if (activity === 'SUBMIT_SUBSCRIPTION_PROOF') {
       const existingSubscription = await Subscription.exists({ agentId });
       if (!existingSubscription) {
-        const settings = await PlatformSettings.getSettings();
+        const [settings, subscriptionSettings] = await Promise.all([
+          PlatformSettings.getSettings(),
+          getSubscriptionSettings()
+        ]);
         const offerAvailable =
           settings.freeSubscriptionOfferEnabled &&
           settings.freeSubscriptionClaimedCount < settings.freeSubscriptionSlotLimit;
@@ -74,11 +58,14 @@ async function submitProof(req, res, { activity, notificationTitle, notification
           if (claimed) {
             const today = new Date();
             const expiryDate = new Date(today);
-            expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_CYCLE_DAYS);
+            expiryDate.setDate(expiryDate.getDate() + subscriptionSettings.durationDays);
 
             const subscription = await Subscription.create({
               agentId,
-              planName: 'Professional Agent Plan (First Agent Free Offer)',
+              planName: `${subscriptionSettings.planName} (First Agent Free Offer)`,
+              basePrice: subscriptionSettings.basePrice,
+              gstPercent: subscriptionSettings.gstPercent,
+              durationDays: subscriptionSettings.durationDays,
               planAmount: 0,
               gstAmount: 0,
               totalAmount: 0,
@@ -128,7 +115,9 @@ async function submitProof(req, res, { activity, notificationTitle, notification
     let subscription;
     const rejectedSub = await Subscription.findOne({ agentId, subscriptionStatus: 'Rejected' });
     const agentDiscountInfo = await Agent.findById(agentId).select('discountEligible').lean();
-    const pricing = calculateSubscriptionPricing(agentDiscountInfo?.discountEligible === true);
+    const subscriptionSettings = await getSubscriptionSettings();
+    const pricing = calculateSubscriptionPricing(subscriptionSettings, agentDiscountInfo?.discountEligible === true);
+    const snapshot = buildSubscriptionSnapshot(subscriptionSettings, pricing);
     const proofCheck = validatePaymentProof({ transactionId, paymentDateTime, screenshot });
     if (proofCheck.errors.length) {
       return res.status(400).json({ message: proofCheck.errors.join(' ') });
@@ -159,24 +148,13 @@ async function submitProof(req, res, { activity, notificationTitle, notification
       rejectedSub.expectedAmountSnapshot = pricing.totalAmount;
       rejectedSub.verificationWarnings = proofCheck.warnings;
       rejectedSub.rejectionRemarks = '';
-      // Always re-stamp the current plan price on reuse, in case pricing
-      // changed since this record was first created.
-      rejectedSub.planAmount = pricing.planAmount;
-      rejectedSub.gstAmount = pricing.gstAmount;
-      rejectedSub.totalAmount = pricing.totalAmount;
-      rejectedSub.discountApplied = pricing.discountApplied;
-      rejectedSub.discountAmount = pricing.discountAmount;
+      Object.assign(rejectedSub, snapshot);
       subscription = await rejectedSub.save();
     } else {
       const invoiceNumber = `REQ-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
       subscription = new Subscription({
         agentId,
-        planName: 'Professional Agent Plan',
-        planAmount: pricing.planAmount,
-        gstAmount: pricing.gstAmount,
-        totalAmount: pricing.totalAmount,
-        discountApplied: pricing.discountApplied,
-        discountAmount: pricing.discountAmount,
+        ...snapshot,
         invoiceNumber,
         paymentStatus: 'Pending Verification',
         subscriptionStatus: 'Verification Pending',

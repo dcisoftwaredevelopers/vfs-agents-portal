@@ -2,6 +2,19 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Calendar, ShieldCheck, Building2, User, KeyRound, ArrowRight, Star, HelpCircle, CheckCircle2, Zap, FolderOpen, Receipt } from 'lucide-react';
 import InstagramAnnouncementBar from './InstagramAnnouncementBar';
+import { API_ROOT_URL } from '../config/api';
+
+const DEFAULT_SUBSCRIPTION_SETTINGS = {
+  planName: 'Professional Plan',
+  basePrice: 10000,
+  gstPercent: 18,
+  durationDays: 30,
+};
+
+const formatINR = (amount) => `INR ${Number(amount || 0).toLocaleString('en-IN', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}`;
 
 const COUNTRY_VISA_GUIDES = {
   Australia: {
@@ -61,6 +74,29 @@ export default function GlobalHome() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('userInfo'));
   const [activeCountryTab, setActiveCountryTab] = React.useState('UK');
+  const [subscriptionSettings, setSubscriptionSettings] = React.useState(DEFAULT_SUBSCRIPTION_SETTINGS);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    window.fetch(`${API_ROOT_URL}/subscription/settings`, { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || cancelled) return;
+        setSubscriptionSettings({
+          planName: data.planName || DEFAULT_SUBSCRIPTION_SETTINGS.planName,
+          basePrice: Number(data.basePrice || DEFAULT_SUBSCRIPTION_SETTINGS.basePrice),
+          gstPercent: Number(data.gstPercent ?? DEFAULT_SUBSCRIPTION_SETTINGS.gstPercent),
+          durationDays: Number(data.durationDays || DEFAULT_SUBSCRIPTION_SETTINGS.durationDays),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const gstAmount = +(subscriptionSettings.basePrice * (subscriptionSettings.gstPercent / 100)).toFixed(2);
+  const totalAmount = +(subscriptionSettings.basePrice + gstAmount).toFixed(2);
 
   const handleGetStarted = () => {
     if (user) {
@@ -281,7 +317,7 @@ export default function GlobalHome() {
                 </div>
                 <div className="benefit-item">
                   <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓</span>
-                  <span style={{ fontSize: '14px', color: '#334155' }}><strong>Access Control:</strong> Automated 30-day billing cycle locks.</span>
+                  <span style={{ fontSize: '14px', color: '#334155' }}><strong>Access Control:</strong> Automated {subscriptionSettings.durationDays}-day billing cycle locks.</span>
                 </div>
               </div>
             </div>
@@ -341,7 +377,7 @@ export default function GlobalHome() {
             Most Popular
           </span>
           
-          <h3 style={{ fontSize: '22px', fontWeight: '700', marginBottom: '10px', border: 'none', padding: 0 }}>Professional Plan</h3>
+          <h3 style={{ fontSize: '22px', fontWeight: '700', marginBottom: '10px', border: 'none', padding: 0 }}>{subscriptionSettings.planName}</h3>
           <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>Best for active visa processing centers</p>
           
           <div style={{
@@ -358,9 +394,9 @@ export default function GlobalHome() {
           </div>
 
           <div style={{ margin: '20px 0 30px' }}>
-            <span style={{ fontSize: '42px', fontWeight: '800', color: '#0c2340' }}>₹10,000</span>
-            <span style={{ color: '#64748b', fontSize: '16px' }}> + GST / Month</span>
-            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '5px' }}>Total Billed: ₹11,800 (₹10,000 base + 18% GST)</div>
+            <span style={{ fontSize: '42px', fontWeight: '800', color: '#0c2340' }}>{formatINR(subscriptionSettings.basePrice)}</span>
+            <span style={{ color: '#64748b', fontSize: '16px' }}> + GST / {subscriptionSettings.durationDays} days</span>
+            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '5px' }}>Total Billed: {formatINR(totalAmount)} ({formatINR(subscriptionSettings.basePrice)} base + {subscriptionSettings.gstPercent}% GST)</div>
           </div>
 
           <button 

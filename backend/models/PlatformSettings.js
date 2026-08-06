@@ -5,7 +5,13 @@ const platformSettingsSchema = new mongoose.Schema({
   freeSubscriptionSlotLimit: { type: Number, default: 10 },
   freeSubscriptionClaimedCount: { type: Number, default: 0 },
   adminFreeSubscriptionSlotLimit: { type: Number, default: 0 },
-  adminFreeSubscriptionGrantedCount: { type: Number, default: 0 }
+  adminFreeSubscriptionGrantedCount: { type: Number, default: 0 },
+  subscriptionPlanName: { type: String, default: 'Professional Plan' },
+  subscriptionBasePrice: { type: Number, default: 10000 },
+  subscriptionGstPercent: { type: Number, default: 18 },
+  subscriptionDurationDays: { type: Number, default: 30 },
+  subscriptionSettingsUpdatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Agent', default: null },
+  subscriptionSettingsUpdatedAt: { type: Date, default: null }
 }, {
   timestamps: true
 });

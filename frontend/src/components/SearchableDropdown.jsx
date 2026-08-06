@@ -1,6 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 
+const isCountryCode = (code) => {
+  const normalized = String(code || '').trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(normalized);
+};
+
 export default function SearchableDropdown({ options, placeholder, value, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,6 +56,40 @@ export default function SearchableDropdown({ options, placeholder, value, onChan
     opt.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const renderOptionLabel = (option, flagClassName = 'dropdown-header-flag') => {
+    const normalizedCode = String(option?.code || '').trim().toLowerCase();
+    const shouldRenderFlagImage = isCountryCode(option?.code);
+    return (
+      <>
+        {shouldRenderFlagImage ? (
+          <img
+            src={`https://flagcdn.com/w40/${normalizedCode}.png`}
+            srcSet={`https://flagcdn.com/w80/${normalizedCode}.png 2x`}
+            alt=""
+            className={flagClassName}
+            loading="lazy"
+            style={{
+              width: '24px',
+              height: '18px',
+              objectFit: 'cover',
+              borderRadius: '2px',
+              marginRight: '12px',
+              flexShrink: 0,
+              boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.12)'
+            }}
+          />
+        ) : option?.flag ? (
+          <span className={flagClassName} style={{ marginRight: '10px', fontSize: '18px', lineHeight: 1, verticalAlign: 'middle' }}>
+            {option.flag}
+          </span>
+        ) : (
+          <span style={{ width: '24px', marginRight: '12px', flexShrink: 0 }} />
+        )}
+        <span>{option?.name}</span>
+      </>
+    );
+  };
+
   const handleSelect = (code) => {
     onChange(code);
     setIsOpen(false);
@@ -66,16 +105,7 @@ export default function SearchableDropdown({ options, placeholder, value, onChan
       >
         <span className="dropdown-header-content">
           {selectedOption ? (
-            <>
-              {selectedOption.flag ? (
-                <span className="dropdown-header-flag" style={{ marginRight: '8px', fontSize: '18px', verticalAlign: 'middle' }}>
-                  {selectedOption.flag}
-                </span>
-              ) : selectedOption.code && selectedOption.code.length === 2 ? (
-                <span className={`fi fi-${selectedOption.code.toLowerCase()} fis dropdown-header-flag`} style={{ marginRight: '8px', verticalAlign: 'middle' }}></span>
-              ) : null}
-              <span className="dropdown-header-text">{selectedOption.name}</span>
-            </>
+            <span className="dropdown-header-text">{renderOptionLabel(selectedOption)}</span>
           ) : (
             <span className="dropdown-header-placeholder">{placeholder}</span>
           )}
@@ -120,14 +150,7 @@ export default function SearchableDropdown({ options, placeholder, value, onChan
                   onClick={() => handleSelect(opt.code)}
                   className={`dropdown-item ${value === opt.code ? 'selected' : ''}`}
                 >
-                  {opt.flag ? (
-                    <span className="dropdown-header-flag" style={{ marginRight: '8px', fontSize: '18px', verticalAlign: 'middle' }}>
-                      {opt.flag}
-                    </span>
-                  ) : opt.code && opt.code.length === 2 ? (
-                    <span className={`fi fi-${opt.code.toLowerCase()} fis dropdown-header-flag`} style={{ marginRight: '8px', verticalAlign: 'middle' }}></span>
-                  ) : null}
-                  <span>{opt.name}</span>
+                  {renderOptionLabel(opt)}
                 </div>
               ))
             )}
