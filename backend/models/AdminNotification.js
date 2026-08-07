@@ -16,7 +16,10 @@ const adminNotificationSchema = new mongoose.Schema({
     default: 'Info'
   },
   read: { type: Boolean, default: false },
-  actionUrl: { type: String, default: '' } // switches tab in admin dashboard e.g., 'agents', 'paymentVerification', etc.
+  actionUrl: { type: String, default: '' }, // switches tab in admin dashboard e.g., 'agents', 'paymentVerification', etc.
+  targetType: { type: String, default: '' },
+  targetId: { type: String, default: '' },
+  targetReference: { type: String, default: '' }
 }, {
   timestamps: true
 });
