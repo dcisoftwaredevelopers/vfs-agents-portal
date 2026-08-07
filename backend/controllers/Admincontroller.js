@@ -22,8 +22,10 @@ const {
   buildSubscriptionVerificationReview,
   canApproveManualSubscription
 } = require('../services/subscriptionPaymentSecurity');
-
-const SUBSCRIPTION_CYCLE_DAYS = 28;
+const {
+  DEFAULT_SUBSCRIPTION_SETTINGS,
+  getSubscriptionSettings,
+} = require('../services/subscriptionSettingsService');
 
 // ==========================================
 // SHARED HELPERS (production hygiene)
@@ -1138,9 +1140,13 @@ exports.grantComplimentaryDays = [
     } else {
       newExpiry = new Date(today);
       newExpiry.setDate(today.getDate() + parsedDays);
+      const subscriptionSettings = await getSubscriptionSettings();
       sub = await Subscription.create({
         agentId: agent._id,
-        planName: 'Professional Agent Plan (Complimentary)',
+        planName: `${subscriptionSettings.planName} (Complimentary)`,
+        basePrice: subscriptionSettings.basePrice,
+        gstPercent: subscriptionSettings.gstPercent,
+        durationDays: parsedDays,
         planAmount: 0, gstAmount: 0, totalAmount: 0,
         invoiceNumber: 'COMP-' + Date.now(),
         paymentStatus: 'Paid',
@@ -1249,7 +1255,8 @@ exports.approveSubscriptionPayment = [
       }
 
       const expiryDate = new Date(startDate);
-      expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_CYCLE_DAYS);
+      const durationDays = Number(sub.durationDays || DEFAULT_SUBSCRIPTION_SETTINGS.durationDays);
+      expiryDate.setDate(expiryDate.getDate() + durationDays);
       const finalInvoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       sub.paymentStatus = 'Paid';
@@ -1303,7 +1310,7 @@ exports.approveSubscriptionPayment = [
     await AgentNotification.create({
       agentId: agent._id,
       title: 'Subscription Activated',
-      message: `Your payment was verified. Your Professional Agent Plan is active. Valid until ${expiryDate.toLocaleDateString('en-GB')}.`,
+      message: `Your payment was verified. Your ${sub.planName} is active. Valid until ${expiryDate.toLocaleDateString('en-GB')}.`,
       type: 'SUBSCRIPTION_ACTIVATED',
     });
 

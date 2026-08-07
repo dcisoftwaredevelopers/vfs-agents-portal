@@ -4,6 +4,7 @@ const { protect } = require('../middleware/authMiddleware');
 const subscriptionController = require('../controllers/Subscriptioncontroller');
 const upload = require('../config/multer');
 
+router.get('/settings', subscriptionController.getSettings);
 router.post('/purchase', protect, upload.single('screenshot'), subscriptionController.purchase);
 router.post('/renew', protect, upload.single('screenshot'), subscriptionController.renew);
 router.get('/history', protect, subscriptionController.getHistory);

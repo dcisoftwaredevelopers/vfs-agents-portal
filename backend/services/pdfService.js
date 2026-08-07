@@ -5,6 +5,39 @@ const replaceVfsBranding = (value = '') =>
   String(value).replace(/\bVFS(?:\s+Global)?\b/gi, PORTAL_NAME);
 const formatAppointmentReference = (value = '') =>
   String(value).trim().replace(/^VFS-/i, '');
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const formatPercent = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return '18';
+  return parsed.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+};
+
+const getSubscriptionDurationDays = (subscription) => {
+  const storedDuration = Number(subscription?.durationDays);
+  if (Number.isFinite(storedDuration) && storedDuration > 0) return Math.round(storedDuration);
+
+  const start = subscription?.startDate ? new Date(subscription.startDate) : null;
+  const expiry = subscription?.expiryDate ? new Date(subscription.expiryDate) : null;
+  if (start && expiry && !Number.isNaN(start.getTime()) && !Number.isNaN(expiry.getTime())) {
+    return Math.max(1, Math.round((expiry - start) / MS_PER_DAY));
+  }
+
+  return 30;
+};
+
+const getSubscriptionGstPercent = (subscription) => {
+  const storedPercent = Number(subscription?.gstPercent);
+  if (Number.isFinite(storedPercent) && storedPercent >= 0) return storedPercent;
+
+  const planAmount = Number(subscription?.planAmount);
+  const gstAmount = Number(subscription?.gstAmount);
+  if (Number.isFinite(planAmount) && planAmount > 0 && Number.isFinite(gstAmount)) {
+    return (gstAmount / planAmount) * 100;
+  }
+
+  return 18;
+};
 
 /**
  * Generates an appointment confirmation PDF in-memory and returns it as a Buffer.
@@ -423,12 +456,15 @@ exports.generateGSTInvoicePDF = (agent, subscription, payment) => {
 
       // Draw table row
       const rowY = tableY + 35;
+      const durationDays = getSubscriptionDurationDays(subscription);
+      const gstPercent = getSubscriptionGstPercent(subscription);
+      const halfGstPercent = gstPercent / 2;
       doc.rect(40, rowY, 515, 30).fill('#f8fafc');
       doc.fillColor('#334155').font('Helvetica').fontSize(8.5);
-      doc.text(`${subscription.planName} - 30 Days Access\n(Billing Cycle: ${new Date(subscription.startDate).toLocaleDateString('en-GB')} to ${new Date(subscription.expiryDate).toLocaleDateString('en-GB')})`, 45, rowY + 5, { width: 210 });
+      doc.text(`${subscription.planName} - ${durationDays} Days Access\n(Billing Cycle: ${new Date(subscription.startDate).toLocaleDateString('en-GB')} to ${new Date(subscription.expiryDate).toLocaleDateString('en-GB')})`, 45, rowY + 5, { width: 210 });
       doc.text('9985', 260, rowY + 10);
       doc.text(`INR ${subscription.planAmount.toFixed(2)}`, 330, rowY + 10, { align: 'right', width: 65 });
-      doc.text('18%', 410, rowY + 10, { align: 'right', width: 50 });
+      doc.text(`${formatPercent(gstPercent)}%`, 410, rowY + 10, { align: 'right', width: 50 });
       doc.text(`INR ${subscription.totalAmount.toFixed(2)}`, 470, rowY + 10, { align: 'right', width: 75 });
 
       // Draw Totals section
@@ -448,11 +484,11 @@ exports.generateGSTInvoicePDF = (agent, subscription, payment) => {
         doc.fillColor('#334155');
       }
 
-      doc.text('CGST @ 9%:', 290, summaryY);
+      doc.text(`CGST @ ${formatPercent(halfGstPercent)}%:`, 290, summaryY);
       doc.text(`INR ${(subscription.gstAmount / 2).toFixed(2)}`, 450, summaryY, { align: 'right', width: 95 });
       summaryY += 15;
 
-      doc.text('SGST @ 9%:', 290, summaryY);
+      doc.text(`SGST @ ${formatPercent(halfGstPercent)}%:`, 290, summaryY);
       doc.text(`INR ${(subscription.gstAmount / 2).toFixed(2)}`, 450, summaryY, { align: 'right', width: 95 });
 
       doc.rect(290, summaryY + 15, 255, 0.5).fillColor('#cbd5e1').fill();
@@ -463,7 +499,7 @@ exports.generateGSTInvoicePDF = (agent, subscription, payment) => {
 
       // Amount in words
       doc.fillColor('#334155').font('Helvetica-Oblique').fontSize(8.5);
-      doc.text('Amount in Words: Eleven Thousand Eight Hundred Rupees Only', 40, totalY + 95);
+      doc.text(`Total Invoice Amount (numeric): INR ${subscription.totalAmount.toFixed(2)}`, 40, totalY + 95);
 
       // Payment proof details
       doc.font('Helvetica').fontSize(8.5);

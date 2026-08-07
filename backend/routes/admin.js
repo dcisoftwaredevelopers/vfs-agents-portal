@@ -31,8 +31,11 @@ const {
   canApproveManualSubscription,
   getScreenshotFileHash
 } = require('../services/subscriptionPaymentSecurity');
-
-const SUBSCRIPTION_CYCLE_DAYS = 28;
+const {
+  DEFAULT_SUBSCRIPTION_SETTINGS,
+  normalizeSubscriptionSettings,
+  getSubscriptionSettings,
+} = require('../services/subscriptionSettingsService');
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const SLOT_BLOCK_TYPES = ['COUNTRY', 'CENTER', 'DATE', 'SLOT'];
@@ -65,6 +68,27 @@ const requireSuperAdminController = (req, res) => {
     return false;
   }
   return true;
+};
+
+const validateSubscriptionSettingsPayload = (body) => {
+  const planName = String(body?.planName || '').trim();
+  const basePrice = Number(body?.basePrice);
+  const gstPercent = Number(body?.gstPercent);
+  const durationDays = Number(body?.durationDays);
+
+  if (!planName) return { error: 'Plan name is required.' };
+  if (!Number.isFinite(basePrice) || basePrice <= 0) return { error: 'Base price must be a positive number.' };
+  if (!Number.isFinite(gstPercent) || gstPercent < 0 || gstPercent > 100) return { error: 'GST percent must be between 0 and 100.' };
+  if (!Number.isFinite(durationDays) || durationDays <= 0) return { error: 'Duration days must be a positive number.' };
+
+  return {
+    value: {
+      planName,
+      basePrice: +basePrice.toFixed(2),
+      gstPercent: +gstPercent.toFixed(2),
+      durationDays: Math.round(durationDays)
+    }
+  };
 };
 
 const adminForgotPasswordLimiter = rateLimit({
@@ -229,6 +253,12 @@ const logAuditAction = async (req, action, entityType, entityId, oldValue, newVa
           description = `Manual free subscription grant slot limit was updated.`;
           category = 'Subscription';
           actionUrl = 'agents';
+          break;
+        case 'UPDATE_SUBSCRIPTION_SETTINGS':
+          title = 'Subscription Settings Updated';
+          description = `Portal subscription price, GST, or duration settings were updated.`;
+          category = 'Subscription';
+          actionUrl = 'subscriptionSettings';
           break;
         case 'ADMIN_GRANTED_FREE_SUBSCRIPTION':
           title = 'Admin Free Subscription Granted';
@@ -435,6 +465,43 @@ router.post('/reset-password', async (req, res) => {
     return res.json({ message: 'Password reset successfully. Please sign in with your new password.' });
   } catch (error) {
     return res.status(500).json({ message: error.message || 'Failed to reset password.' });
+  }
+});
+
+router.get('/settings/subscription', protect, authorize('SUPER_ADMIN'), async (_req, res) => {
+  try {
+    const settings = await PlatformSettings.getSettings();
+    res.json(normalizeSubscriptionSettings(settings));
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to load subscription settings.' });
+  }
+});
+
+router.patch('/settings/subscription', protect, authorize('SUPER_ADMIN'), async (req, res) => {
+  const validation = validateSubscriptionSettingsPayload(req.body);
+  if (validation.error) {
+    return res.status(400).json({ message: validation.error });
+  }
+
+  try {
+    const settings = await PlatformSettings.getSettings();
+    const oldValue = normalizeSubscriptionSettings(settings);
+    const { planName, basePrice, gstPercent, durationDays } = validation.value;
+
+    settings.subscriptionPlanName = planName;
+    settings.subscriptionBasePrice = basePrice;
+    settings.subscriptionGstPercent = gstPercent;
+    settings.subscriptionDurationDays = durationDays;
+    settings.subscriptionSettingsUpdatedBy = req.user._id;
+    settings.subscriptionSettingsUpdatedAt = new Date();
+    await settings.save();
+
+    const newValue = normalizeSubscriptionSettings(settings);
+    await logAuditAction(req, 'UPDATE_SUBSCRIPTION_SETTINGS', 'PlatformSettings', settings._id, oldValue, newValue);
+
+    res.json({ message: 'Subscription settings updated successfully.', settings: newValue });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to update subscription settings.' });
   }
 });
 
@@ -2967,13 +3034,17 @@ router.post(
 
       claimedSettingsId = claimedSettings._id;
 
+      const subscriptionSettings = await getSubscriptionSettings();
       const today = new Date();
       const expiryDate = new Date(today);
-      expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_CYCLE_DAYS);
+      expiryDate.setDate(expiryDate.getDate() + subscriptionSettings.durationDays);
 
       const subscription = await Subscription.create({
         agentId: agent._id,
-        planName: 'Professional Agent Plan (Admin Grant)',
+        planName: `${subscriptionSettings.planName} (Admin Grant)`,
+        basePrice: subscriptionSettings.basePrice,
+        gstPercent: subscriptionSettings.gstPercent,
+        durationDays: subscriptionSettings.durationDays,
         planAmount: 0,
         gstAmount: 0,
         totalAmount: 0,
@@ -3233,9 +3304,13 @@ router.post('/agents/:id/complimentary', protect, authorize('SUPER_ADMIN'), asyn
     } else {
       newExpiry = new Date();
       newExpiry.setDate(today.getDate() + parseInt(days));
+      const subscriptionSettings = await getSubscriptionSettings();
       sub = new Subscription({
         agentId: agent._id,
-        planName: 'Professional Agent Plan (Complimentary)',
+        planName: `${subscriptionSettings.planName} (Complimentary)`,
+        basePrice: subscriptionSettings.basePrice,
+        gstPercent: subscriptionSettings.gstPercent,
+        durationDays: parseInt(days),
         planAmount: 0,
         gstAmount: 0,
         totalAmount: 0,
@@ -3404,7 +3479,8 @@ router.post('/subscription-payments/:id/approve', protect, authorize('SUPER_ADMI
     }
 
     const expiryDate = new Date(startDate);
-    expiryDate.setDate(expiryDate.getDate() + SUBSCRIPTION_CYCLE_DAYS);
+    const durationDays = Number(sub.durationDays || DEFAULT_SUBSCRIPTION_SETTINGS.durationDays);
+    expiryDate.setDate(expiryDate.getDate() + durationDays);
 
     const finalInvoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -3467,7 +3543,7 @@ router.post('/subscription-payments/:id/approve', protect, authorize('SUPER_ADMI
     await AgentNotification.create({
       agentId: agent._id,
       title: 'Subscription Activated',
-      message: `Your payment was verified. Your Professional Agent Plan is active. Valid until ${expiryDate.toLocaleDateString('en-GB')}.`,
+      message: `Your payment was verified. Your ${sub.planName} is active. Valid until ${expiryDate.toLocaleDateString('en-GB')}.`,
       type: 'SUBSCRIPTION_ACTIVATED'
     });
 
