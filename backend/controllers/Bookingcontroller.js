@@ -7,6 +7,7 @@ const SlotBlock = require('../models/SlotBlock');
 const EmergencyClosure = require('../models/EmergencyClosure');
 const EmailVerification = require('../models/EmailVerification');
 const AuditLog = require('../models/AuditLog');
+const BookingDraft = require('../models/BookingDraft');
 const lockingService = require('../services/lockingService');
 const queueService = require('../services/queueService');
 const mailService = require('../services/mailService');
@@ -15,6 +16,66 @@ const socketService = require('../services/socketService');
 const Agent = require('../models/Agent');
 const freeApplicationService = require('../services/freeApplicationService');
 const { DEFAULT_SLOTS, isSlotBlocked, getActiveLocksMap } = require('../services/slotAvailabilityService');
+
+const DRAFT_TTL_DAYS = 14;
+
+const getDraftExpiry = () => new Date(Date.now() + DRAFT_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+const parseDraftPayload = (body) => {
+  if (typeof body.payload === 'string') {
+    return JSON.parse(body.payload);
+  }
+  return body.payload && typeof body.payload === 'object' ? body.payload : body;
+};
+
+const cleanDraftApplicant = (applicant = {}) => {
+  const {
+    passportDocumentPreview,
+    ...rest
+  } = applicant || {};
+
+  return {
+    ...rest,
+    passportDocument: typeof rest.passportDocument === 'string' ? rest.passportDocument : ''
+  };
+};
+
+const normalizeDraftPayload = (payload = {}, files = []) => {
+  const filesByField = files.reduce((acc, file) => {
+    acc[file.fieldname] = file.path;
+    return acc;
+  }, {});
+
+  const applicantsList = Array.isArray(payload.applicantsList)
+    ? payload.applicantsList.map((applicant, index) => ({
+        ...cleanDraftApplicant(applicant),
+        passportDocument: filesByField[`applicantPassportDocument_${index}`] || cleanDraftApplicant(applicant).passportDocument
+      }))
+    : [];
+
+  const currentApplicantForm = {
+    ...cleanDraftApplicant(payload.currentApplicantForm || {}),
+    passportDocument: filesByField.currentPassportDocument || cleanDraftApplicant(payload.currentApplicantForm || {}).passportDocument
+  };
+
+  const currentStep = Number(payload.currentStep || 1);
+
+  return {
+    currentStep: Number.isFinite(currentStep) ? Math.min(Math.max(currentStep, 1), 6) : 1,
+    destinationCountry: String(payload.destinationCountry || '').trim().toUpperCase(),
+    location: String(payload.location || ''),
+    visaCategory: String(payload.visaCategory || ''),
+    applicantsList,
+    currentApplicantForm,
+    selectedServices: Array.isArray(payload.selectedServices) ? payload.selectedServices.map(String) : [],
+    bookingDate: String(payload.bookingDate || ''),
+    bookingTime: String(payload.bookingTime || ''),
+    useFreeApplicationCredit: payload.useFreeApplicationCredit === true || payload.useFreeApplicationCredit === 'true',
+    paymentUpiId: String(payload.paymentUpiId || ''),
+    lastSavedAt: new Date(),
+    expiresAt: getDraftExpiry()
+  };
+};
 
 const isTransientMongoError = (err) => {
   const message = String(err && err.message ? err.message : err || '').toLowerCase();
@@ -31,6 +92,81 @@ const isTransientMongoError = (err) => {
 // ==========================================
 // PUBLIC LOOKUP ENDPOINTS
 // ==========================================
+
+exports.getActiveDraft = async (req, res) => {
+  try {
+    const draft = await BookingDraft.findOne({
+      agentId: req.user._id,
+      status: 'ACTIVE',
+      expiresAt: { $gt: new Date() }
+    }).lean();
+
+    res.json({ draft: draft || null });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+exports.saveDraft = async (req, res) => {
+  try {
+    const payload = parseDraftPayload(req.body);
+    const draftPayload = normalizeDraftPayload(payload, req.files || []);
+
+    const draft = await BookingDraft.findOneAndUpdate(
+      { agentId: req.user._id, status: 'ACTIVE' },
+      {
+        $set: {
+          ...draftPayload,
+          agentId: req.user._id,
+          status: 'ACTIVE'
+        }
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json({ message: 'Draft saved.', draft });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message || 'Unable to save draft.' });
+  }
+};
+
+exports.discardDraft = async (req, res) => {
+  try {
+    const draft = await BookingDraft.findOneAndUpdate(
+      { agentId: req.user._id, status: 'ACTIVE' },
+      {
+        $set: {
+          status: 'DISCARDED',
+          lastSavedAt: new Date()
+        }
+      },
+      { new: true }
+    ).lean();
+
+    res.json({ message: 'Draft discarded.', draft });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+exports.completeDraft = async (req, res) => {
+  try {
+    const draft = await BookingDraft.findOneAndUpdate(
+      { agentId: req.user._id, status: 'ACTIVE' },
+      {
+        $set: {
+          status: 'COMPLETED',
+          lastSavedAt: new Date()
+        }
+      },
+      { new: true }
+    ).lean();
+
+    res.json({ message: 'Draft completed.', draft });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
 
 exports.getCenters = async (req, res) => {
   try {

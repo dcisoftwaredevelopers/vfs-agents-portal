@@ -10,6 +10,12 @@ router.get('/countries', bookingController.getCountries);
 router.get('/centers-config', bookingController.getCentersConfig);
 router.get('/centers-by-country', bookingController.getCentersByCountry);
 
+// Booking drafts
+router.get('/draft/active', protect, verifyActiveSubscription, bookingController.getActiveDraft);
+router.post('/draft', protect, verifyActiveSubscription, upload.any(), bookingController.saveDraft);
+router.delete('/draft/active', protect, verifyActiveSubscription, bookingController.discardDraft);
+router.post('/draft/complete', protect, verifyActiveSubscription, bookingController.completeDraft);
+
 // Slot availability
 router.get('/slots', protect, verifyActiveSubscription, bookingController.getSlots);
 router.get('/emergency-closures', protect, verifyActiveSubscription, bookingController.getEmergencyClosures);
