@@ -2717,7 +2717,7 @@ router.post('/payments-verification/:id/reject', protect, authorize('SUPER_ADMIN
     }
 
     const mailOptions = {
-      to: recipients.join(', '),
+      to: recipients,
       subject: 'Payment Verification Unsuccessful – Dream Catcher Immigrations',
       html: `
         <div style="font-family: Arial, sans-serif; padding: 25px; color: #0c2340; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px;">
