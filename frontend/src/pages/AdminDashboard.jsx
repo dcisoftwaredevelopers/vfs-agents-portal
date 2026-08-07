@@ -1952,8 +1952,154 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div>
+    <div className="admin-dashboard-page">
       <style>{`
+        .admin-dashboard-page {
+          background: linear-gradient(180deg, #f8fafc 0%, #ffffff 42%);
+          min-height: 100vh;
+        }
+
+        .admin-dashboard-page .hero {
+          padding: 54px 20px 46px;
+          background:
+            radial-gradient(circle at 20% 10%, rgba(223, 160, 21, 0.16), transparent 28%),
+            radial-gradient(circle at 80% 25%, rgba(59, 130, 246, 0.18), transparent 30%),
+            linear-gradient(135deg, #081a31 0%, #12345a 58%, #0c2340 100%);
+          border-bottom: 3px solid #dfa015;
+        }
+
+        .admin-dashboard-page .hero h1 {
+          font-size: clamp(28px, 3vw, 40px);
+          margin-bottom: 12px;
+          letter-spacing: 0;
+        }
+
+        .admin-dashboard-page .hero p {
+          max-width: 680px;
+          margin: 0 auto;
+          color: #dbeafe;
+          font-size: 16px;
+          line-height: 1.65;
+        }
+
+        .admin-dashboard-shell {
+          box-sizing: border-box;
+          max-width: none;
+          width: min(1760px, calc(100% - 48px));
+          padding-top: 36px;
+        }
+
+        .admin-dashboard-page {
+          overflow-x: hidden;
+        }
+
+        .admin-dashboard-page *,
+        .admin-dashboard-page *::before,
+        .admin-dashboard-page *::after {
+          box-sizing: border-box;
+        }
+
+        .admin-tab-nav {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+          gap: 10px;
+          padding: 14px;
+          margin-bottom: 30px;
+          border: 1px solid #dbe4f0;
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.82);
+          box-shadow: 0 16px 40px rgba(12, 35, 64, 0.06);
+        }
+
+        .admin-tab-btn {
+          justify-content: flex-start;
+          min-height: 44px;
+          border-radius: 10px !important;
+          border: 1px solid transparent !important;
+          background: transparent !important;
+        }
+
+        .admin-tab-btn:hover {
+          background: #f8fafc !important;
+          border-color: #dbe4f0 !important;
+          color: #0c2340 !important;
+        }
+
+        .admin-tab-btn.active {
+          background: #0c2340 !important;
+          border-color: #0c2340 !important;
+          color: #ffffff !important;
+          box-shadow: 0 10px 20px rgba(12, 35, 64, 0.16);
+        }
+
+        .admin-tab-btn.active .info-btn {
+          color: #bfdbfe;
+        }
+
+        .admin-section-title {
+          padding-bottom: 10px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+
+        .admin-stat-grid {
+          gap: 18px !important;
+        }
+
+        .admin-stat-card {
+          border-radius: 14px !important;
+          border-color: #dbe4f0 !important;
+          box-shadow: 0 14px 28px rgba(12, 35, 64, 0.07) !important;
+        }
+
+        .admin-filter-card {
+          border-radius: 14px !important;
+          background: #ffffff !important;
+          border-color: #dbe4f0 !important;
+          box-shadow: 0 12px 26px rgba(12, 35, 64, 0.06) !important;
+        }
+
+        .admin-dashboard-page .form-control {
+          border-radius: 10px !important;
+          border-color: #cbd5e1 !important;
+          background-color: #ffffff;
+        }
+
+        .admin-dashboard-page .form-control:focus {
+          border-color: #0c2340 !important;
+          box-shadow: 0 0 0 3px rgba(12, 35, 64, 0.1);
+        }
+
+        .admin-table-card {
+          border-radius: 16px !important;
+          overflow: hidden;
+          border-color: #dbe4f0 !important;
+          box-shadow: 0 18px 42px rgba(12, 35, 64, 0.08) !important;
+        }
+
+        .admin-dashboard-page .vfs-table th {
+          background: #f8fafc;
+          color: #475569;
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0;
+        }
+
+        .admin-dashboard-page .vfs-table td {
+          vertical-align: middle;
+        }
+
+        @media (max-width: 768px) {
+          .admin-dashboard-shell {
+            width: calc(100% - 20px);
+            padding: 24px 0;
+          }
+
+          .admin-tab-nav {
+            grid-template-columns: 1fr;
+            padding: 10px;
+          }
+        }
+
         /* Info Button & Tooltip Container */
         .info-btn-container {
           display: inline-flex;
@@ -2054,7 +2200,7 @@ export default function AdminDashboard() {
         subtitle="Manage slot capacities, configure blocked operational ranges, and handle emergency closures"
       />
 
-      <div className="container" style={{ marginTop: '20px' }}>
+      <div className="container admin-dashboard-shell" style={{ marginTop: '20px' }}>
         {error && (
           <div style={{ backgroundColor: '#fee2e2', borderLeft: '4px solid #ef4444', color: '#b91c1c', padding: '12px', fontSize: '14px', borderRadius: '4px', marginBottom: '20px' }}>
             {error}
@@ -2062,7 +2208,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Navigation Tabs */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '2px solid #e2e8f0', marginBottom: '30px', gap: '10px' }}>
+        <div className="admin-tab-nav">
           {[
             { id: 'applications', label: 'Visa Applications', icon: <Users size={16} /> },
             { id: 'agents', label: 'Agent & SaaS Management', icon: <Building2 size={16} /> },
@@ -2079,6 +2225,7 @@ export default function AdminDashboard() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
+              className={`admin-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -2505,13 +2652,13 @@ export default function AdminDashboard() {
         {/* Tab 1: Applications Dashboard */}
         {activeTab === 'applications' && (
           <div>
-            <h2 style={{ color: '#0c2340', fontWeight: 'bold', fontSize: '22px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 className="admin-section-title" style={{ color: '#0c2340', fontWeight: 'bold', fontSize: '22px', marginBottom: '25px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               Visa Applications & Submissions
               <InfoTooltip text={tooltipExplanations.applications} />
             </h2>
             {/* Stats Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '30px' }}>
-              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px' }}>
+            <div className="admin-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '30px' }}>
+              <div className="card admin-stat-card" style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px' }}>
                 <div style={{ backgroundColor: 'rgba(12,35,64,0.05)', color: '#0c2340', padding: '10px', borderRadius: '50%' }}>
                   <Users size={24} />
                 </div>
@@ -2520,7 +2667,7 @@ export default function AdminDashboard() {
                   <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{filteredStats.totalCount} / {displayStats.totalAppointments}</div>
                 </div>
               </div>
-              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px' }}>
+              <div className="card admin-stat-card" style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px' }}>
                 <div style={{ backgroundColor: 'rgba(230,126,34,0.05)', color: '#e67e22', padding: '10px', borderRadius: '50%' }}>
                   <DollarSign size={24} />
                 </div>
@@ -2529,7 +2676,7 @@ export default function AdminDashboard() {
                   <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#e67e22' }}>INR {filteredStats.totalRevenue.toLocaleString('en-IN')}</div>
                 </div>
               </div>
-              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px' }}>
+              <div className="card admin-stat-card" style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px' }}>
                 <div style={{ backgroundColor: 'rgba(239,68,68,0.05)', color: '#ef4444', padding: '10px', borderRadius: '50%' }}>
                   <Lock size={24} />
                 </div>
@@ -2543,7 +2690,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* Filter & Export Bar */}
-            <div className="card" style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '20px', backgroundColor: '#f8fafc', padding: '15px 20px' }}>
+            <div className="card admin-filter-card" style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '20px', backgroundColor: '#f8fafc', padding: '15px 20px' }}>
               <div style={{ flex: '1 1 200px' }}>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#0c2340', marginBottom: '5px' }}>Search Submissions</label>
                 <input
@@ -2603,7 +2750,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* List Table */}
-            <div className="card">
+            <div className="card admin-table-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '12px' }}>
                 <h3 style={{ margin: 0, color: '#0c2340', fontWeight: 'bold' }}>Visa Submissions</h3>
                 {visaApplicationsFetching && hasVisaApplicationsData && (
