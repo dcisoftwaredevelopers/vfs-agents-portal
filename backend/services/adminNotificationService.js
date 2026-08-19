@@ -3,7 +3,7 @@ const AdminNotification = require('../models/AdminNotification');
 /**
  * Create a new admin notification, save to DB, and broadcast to all admins via Socket.IO
  */
-exports.createAdminNotification = async ({ title, description, category, userId, priority = 'Info', actionUrl = '' }) => {
+exports.createAdminNotification = async ({ title, description, category, userId, priority = 'Info', actionUrl = '', targetType = '', targetId = '', targetReference = '' }) => {
   try {
     const notification = await AdminNotification.create({
       title,
@@ -12,7 +12,10 @@ exports.createAdminNotification = async ({ title, description, category, userId,
       userId,
       priority,
       read: false,
-      actionUrl
+      actionUrl,
+      targetType,
+      targetId,
+      targetReference
     });
 
     if (global.io) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Calendar, User, CreditCard, CheckCircle2, Award, ClipboardCheck, Edit, Trash2, Plus, Wallet } from 'lucide-react';
+import { Calendar, User, CreditCard, CheckCircle2, Award, ClipboardCheck, Edit, Trash2, Plus, Wallet, Save, RotateCcw } from 'lucide-react';
 import { io } from 'socket.io-client';
 import SearchableDropdown from '../components/SearchableDropdown';
 import { API_BASE_URL, API_ROOT_URL } from '../config/api';
@@ -587,6 +587,60 @@ export default function BookAppointment() {
     passportDocumentPreview: ''
   });
 
+  // Services State
+  const [selectedServices, setSelectedServices] = useState(['flight_ticket', 'hotel_booking', 'application_form', 'service_charges', 'travel_insurance']); // always selected / mandatory paid services under new rules
+  const [pendingApplicant, setPendingApplicant] = useState(null);
+  const [emailToVerify, setEmailToVerify] = useState('');
+
+  // Date/Time State
+  const [bookingDate, setBookingDate] = useState('');
+  const [bookingTime, setBookingTime] = useState('');
+  const [availableSlots, setAvailableSlots] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  // Payment State
+  const [paymentDetails, setPaymentDetails] = useState({
+    cardName: '',
+    cardNumber: '',
+    expiry: '',
+    cvv: ''
+  });
+
+  // Confirmed State
+  const [confirmationData, setConfirmationData] = useState(null);
+
+  // Searchable Nationality states
+  const [nationalitySearchQuery, setNationalitySearchQuery] = useState('');
+  const [isNationalityDropdownOpen, setIsNationalityDropdownOpen] = useState(false);
+
+  // OTP Verification states
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
+  const [otpCodeInput, setOtpCodeInput] = useState('');
+  const [otpTimer, setOtpTimer] = useState(0); // overall expiration (5 mins)
+  const [resendCooldown, setResendCooldown] = useState(0); // resend delay (60s)
+  const [otpError, setOtpError] = useState('');
+  const [otpSuccess, setOtpSuccess] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+
+  // Slot timing filter state
+  const [slotTimeFilter, setSlotTimeFilter] = useState('All');
+
+  // Payment method and other payment details
+  const [paymentMethod, setPaymentMethod] = useState('upi'); // 'card', 'netbanking', 'upi'
+  const [paymentBank, setPaymentBank] = useState('');
+  const [paymentUpiId, setPaymentUpiId] = useState('');
+  const [paymentScreenshot, setPaymentScreenshot] = useState('');
+  const [useFreeApplicationCredit, setUseFreeApplicationCredit] = useState(false);
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftId, setDraftId] = useState(null);
+  const [draftSaveStatus, setDraftSaveStatus] = useState('');
+  const [draftLastSavedAt, setDraftLastSavedAt] = useState(null);
+  const [draftNotice, setDraftNotice] = useState('');
+  const skipDraftSaveRef = useRef(false);
+  const draftSaveTimerRef = useRef(null);
+  const lastDraftSignatureRef = useRef('');
+
   const applicantDetailsRef = useRef(applicantDetails);
   const applicantsListRef = useRef(applicantsList);
 
@@ -606,12 +660,317 @@ export default function BookAppointment() {
   }, []);
 
   const revokePassportPreview = (applicant) => {
-    if (applicant?.passportDocumentPreview) {
+    if (applicant?.passportDocumentPreview && applicant.passportDocumentPreview.startsWith('blob:')) {
       URL.revokeObjectURL(applicant.passportDocumentPreview);
     }
   };
 
   const stripPassportPreview = ({ passportDocumentPreview, ...applicant }) => applicant;
+
+  const normalizeDraftApplicant = (applicant = {}) => {
+    const clean = stripPassportPreview(applicant || {});
+    return {
+      ...clean,
+      passportDocument: clean.passportDocument instanceof File ? '' : (clean.passportDocument || '')
+    };
+  };
+
+  const restoreDraftApplicant = (applicant = {}) => ({
+    ...applicant,
+    passportDocument: applicant.passportDocument || '',
+    passportDocumentPreview: applicant.passportDocument || ''
+  });
+
+  const buildDraftFormData = () => {
+    const formData = new FormData();
+    const payloadApplicants = applicantsList.map((applicant, index) => {
+      if (applicant.passportDocument instanceof File) {
+        formData.append(`applicantPassportDocument_${index}`, applicant.passportDocument);
+      }
+      return normalizeDraftApplicant(applicant);
+    });
+
+    const payloadCurrentApplicant = normalizeDraftApplicant(applicantDetails);
+    if (applicantDetails.passportDocument instanceof File) {
+      formData.append('currentPassportDocument', applicantDetails.passportDocument);
+    }
+
+    const safeStep = step > 6 ? 6 : step;
+    formData.append('payload', JSON.stringify({
+      currentStep: safeStep,
+      destinationCountry,
+      location,
+      visaCategory,
+      applicantsList: payloadApplicants,
+      currentApplicantForm: payloadCurrentApplicant,
+      selectedServices,
+      bookingDate,
+      bookingTime,
+      useFreeApplicationCredit,
+      paymentUpiId
+    }));
+
+    return formData;
+  };
+
+  const hasUnsyncedDraftFile = () => {
+    return (
+      applicantDetails.passportDocument instanceof File ||
+      applicantsList.some(applicant => applicant.passportDocument instanceof File)
+    );
+  };
+
+  const getDraftSignature = () => JSON.stringify({
+    currentStep: step > 6 ? 6 : step,
+    destinationCountry,
+    location,
+    visaCategory,
+    applicantsList: applicantsList.map(normalizeDraftApplicant),
+    currentApplicantForm: normalizeDraftApplicant(applicantDetails),
+    selectedServices,
+    bookingDate,
+    bookingTime,
+    useFreeApplicationCredit,
+    paymentUpiId
+  });
+
+  const hasDraftContent = () => {
+    const currentApplicant = normalizeDraftApplicant(applicantDetails);
+    const meaningfulApplicant = { ...currentApplicant };
+    if (meaningfulApplicant.email === (user ? user.email : '')) {
+      delete meaningfulApplicant.email;
+    }
+    if (meaningfulApplicant.phoneCountryCode === '+91') {
+      delete meaningfulApplicant.phoneCountryCode;
+    }
+
+    return Boolean(
+      destinationCountry ||
+      location ||
+      visaCategory ||
+      applicantsList.length > 0 ||
+      Object.values(meaningfulApplicant).some(value => Boolean(value)) ||
+      bookingDate ||
+      bookingTime ||
+      paymentUpiId ||
+      useFreeApplicationCredit
+    );
+  };
+
+  const applySavedDraft = (draft, showNotice = false) => {
+    if (!draft) return;
+
+    skipDraftSaveRef.current = true;
+    setDraftId(draft._id || null);
+    setDestinationCountry(draft.destinationCountry || '');
+    if (draft.destinationCountry) {
+      localStorage.setItem('selectedDestinationCountry', draft.destinationCountry);
+    }
+    setLocation(draft.location || '');
+    setVisaCategory(draft.visaCategory || '');
+    setApplicantsList((draft.applicantsList || []).map(restoreDraftApplicant));
+    setApplicantDetails(prev => ({
+      ...prev,
+      ...restoreDraftApplicant(draft.currentApplicantForm || {}),
+      email: draft.currentApplicantForm?.email || prev.email || (user ? user.email : '')
+    }));
+    setSelectedServices(Array.isArray(draft.selectedServices) && draft.selectedServices.length > 0
+      ? draft.selectedServices
+      : ['flight_ticket', 'hotel_booking', 'application_form', 'service_charges', 'travel_insurance']);
+    setBookingDate(draft.bookingDate || '');
+    setBookingTime(draft.bookingTime || '');
+    setUseFreeApplicationCredit(Boolean(draft.useFreeApplicationCredit));
+    setPaymentUpiId(draft.paymentUpiId || '');
+    setLockedAppointmentId(null);
+    setLockExpirationTime(null);
+    setTimeLeft(0);
+    setShowForm(!(draft.applicantsList || []).length);
+    setDraftLastSavedAt(draft.lastSavedAt || draft.updatedAt || null);
+
+    const restoredStep = Number(draft.currentStep || 1);
+    setStep(restoredStep > 3 ? 3 : Math.max(1, restoredStep));
+    if (showNotice && restoredStep > 3) {
+      setDraftNotice('Your saved form was restored. Please select the appointment slot again because temporary slot locks cannot be reused after refresh.');
+    } else if (showNotice) {
+      setDraftNotice('Your saved booking draft was restored.');
+    }
+
+    window.setTimeout(() => {
+      skipDraftSaveRef.current = false;
+    }, 0);
+  };
+
+  const saveBookingDraft = async ({ manual = false } = {}) => {
+    if (!draftLoaded || !isAuthorized || step >= 7 || confirmationData || !hasDraftContent()) return;
+
+    const draftSignature = getDraftSignature();
+    if (!manual && !hasUnsyncedDraftFile() && draftSignature === lastDraftSignatureRef.current) {
+      return;
+    }
+
+    setDraftSaveStatus('saving');
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/booking/draft`, {
+        method: 'POST',
+        body: buildDraftFormData()
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Unable to save draft.');
+      }
+
+      if (data.draft) {
+        setDraftId(data.draft._id || draftId);
+        setDraftLastSavedAt(data.draft.lastSavedAt || data.draft.updatedAt || new Date().toISOString());
+        const savedApplicants = data.draft.applicantsList || [];
+        const savedCurrentApplicant = data.draft.currentApplicantForm || {};
+
+        setApplicantsList(prev => prev.map((applicant, index) => {
+          if (!(applicant.passportDocument instanceof File)) return applicant;
+          return restoreDraftApplicant(savedApplicants[index] || normalizeDraftApplicant(applicant));
+        }));
+
+        if (applicantDetails.passportDocument instanceof File && savedCurrentApplicant.passportDocument) {
+          setApplicantDetails(prev => restoreDraftApplicant({
+            ...prev,
+            passportDocument: savedCurrentApplicant.passportDocument
+          }));
+        }
+      }
+
+      setDraftSaveStatus(manual ? 'saved' : 'autosaved');
+      lastDraftSignatureRef.current = getDraftSignature();
+    } catch (err) {
+      console.warn('Booking draft save failed:', err.message);
+      setDraftSaveStatus('error');
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+
+    let cancelled = false;
+    const loadActiveDraft = async () => {
+      try {
+        const res = await apiFetch(`${API_ROOT_URL}/booking/draft/active`);
+        const data = await res.json();
+        if (!cancelled && res.ok && data.draft) {
+          applySavedDraft(data.draft, true);
+        }
+      } catch (err) {
+        console.warn('Unable to load booking draft:', err.message);
+      } finally {
+        if (!cancelled) {
+          setDraftLoaded(true);
+        }
+      }
+    };
+
+    loadActiveDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthorized]);
+
+  useEffect(() => {
+    if (!draftLoaded || skipDraftSaveRef.current || step >= 7 || confirmationData) return;
+    if (!hasDraftContent()) return;
+
+    if (draftSaveTimerRef.current) {
+      clearTimeout(draftSaveTimerRef.current);
+    }
+
+    draftSaveTimerRef.current = setTimeout(() => {
+      saveBookingDraft();
+    }, 1200);
+
+    return () => {
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+      }
+    };
+  }, [
+    draftLoaded,
+    step,
+    destinationCountry,
+    location,
+    visaCategory,
+    applicantsList,
+    applicantDetails,
+    selectedServices,
+    bookingDate,
+    bookingTime,
+    useFreeApplicationCredit,
+    paymentUpiId,
+    confirmationData
+  ]);
+
+  const discardBookingDraft = async () => {
+    skipDraftSaveRef.current = true;
+    revokePassportPreview(applicantDetails);
+    applicantsList.forEach(revokePassportPreview);
+    setDraftId(null);
+    setDraftNotice('');
+    setDraftSaveStatus('');
+    setDraftLastSavedAt(null);
+    lastDraftSignatureRef.current = '';
+    setStep(1);
+    setErrors({});
+    setApiError('');
+    setNetworkRetryAction('');
+    setDestinationCountry('');
+    localStorage.removeItem('selectedDestinationCountry');
+    setLocation('');
+    setVisaCategory('');
+    setApplicantsList([]);
+    setApplicantDetails({
+      firstName: '',
+      lastName: '',
+      passportNumber: '',
+      email: user ? user.email : '',
+      phone: '',
+      phoneCountryCode: '+91',
+      gender: '',
+      nationality: '',
+      dob: '',
+      dobDay: '',
+      dobMonth: '',
+      dobYear: '',
+      visaCategory: '',
+      location: '',
+      passportDocument: '',
+      passportDocumentPreview: ''
+    });
+    setEditingIndex(null);
+    setShowForm(true);
+    setBookingDate('');
+    setBookingTime('');
+    setAvailableSlots([]);
+    setPaymentUpiId('');
+    setPaymentScreenshot('');
+    setUseFreeApplicationCredit(false);
+    setLockedAppointmentId(null);
+    setLockExpirationTime(null);
+    setTimeLeft(0);
+    try {
+      await apiFetch(`${API_ROOT_URL}/booking/draft/active`, { method: 'DELETE' });
+    } catch (err) {
+      console.warn('Unable to discard booking draft:', err.message);
+    } finally {
+      window.setTimeout(() => {
+        skipDraftSaveRef.current = false;
+      }, 0);
+    }
+  };
+
+  const completeBookingDraft = async () => {
+    try {
+      await apiFetch(`${API_ROOT_URL}/booking/draft/complete`, { method: 'POST' });
+    } catch (err) {
+      console.warn('Unable to complete booking draft:', err.message);
+    }
+  };
 
   const resetFormDraft = () => {
     revokePassportPreview(applicantDetails);
@@ -713,52 +1072,6 @@ export default function BookAppointment() {
     resetFormDraft();
     setShowForm(true);
   };
-
-  // Services State
-  const [selectedServices, setSelectedServices] = useState(['flight_ticket', 'hotel_booking', 'application_form', 'service_charges', 'travel_insurance']); // always selected / mandatory paid services under new rules
-  const [pendingApplicant, setPendingApplicant] = useState(null);
-  const [emailToVerify, setEmailToVerify] = useState('');
-
-  // Date/Time State
-  const [bookingDate, setBookingDate] = useState('');
-  const [bookingTime, setBookingTime] = useState('');
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [slotsLoading, setSlotsLoading] = useState(false);
-
-  // Payment State
-  const [paymentDetails, setPaymentDetails] = useState({
-    cardName: '',
-    cardNumber: '',
-    expiry: '',
-    cvv: ''
-  });
-
-  // Confirmed State
-  const [confirmationData, setConfirmationData] = useState(null);
-
-  // Searchable Nationality states
-  const [nationalitySearchQuery, setNationalitySearchQuery] = useState('');
-  const [isNationalityDropdownOpen, setIsNationalityDropdownOpen] = useState(false);
-
-  // OTP Verification states
-  const [showOtpVerification, setShowOtpVerification] = useState(false);
-  const [otpCodeInput, setOtpCodeInput] = useState('');
-  const [otpTimer, setOtpTimer] = useState(0); // overall expiration (5 mins)
-  const [resendCooldown, setResendCooldown] = useState(0); // resend delay (60s)
-  const [otpError, setOtpError] = useState('');
-  const [otpSuccess, setOtpSuccess] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
-
-  // Slot timing filter state
-  const [slotTimeFilter, setSlotTimeFilter] = useState('All');
-
-  // Payment method and other payment details
-  const [paymentMethod, setPaymentMethod] = useState('upi'); // 'card', 'netbanking', 'upi'
-  const [paymentBank, setPaymentBank] = useState('');
-  const [paymentUpiId, setPaymentUpiId] = useState('');
-  const [paymentScreenshot, setPaymentScreenshot] = useState('');
-  const [useFreeApplicationCredit, setUseFreeApplicationCredit] = useState(false);
-  const [referenceNumber, setReferenceNumber] = useState('');
 
   // Close nationality dropdown when clicking outside
   useEffect(() => {
@@ -1285,7 +1598,7 @@ export default function BookAppointment() {
 
         return {
           ...stripPassportPreview(app),
-          passportDocument: ''
+          passportDocument: app.passportDocument instanceof File ? '' : (app.passportDocument || '')
         };
       })));
       formData.append('servicesSelected', JSON.stringify(servicesPayload));
@@ -1424,6 +1737,7 @@ export default function BookAppointment() {
       setLockExpirationTime(null);
       setTimeLeft(0);
       setLockedAppointmentId(null);
+      await completeBookingDraft();
 
       setShowPaymentSuccessAlert(true);
     } catch (err) {
@@ -1457,6 +1771,16 @@ export default function BookAppointment() {
     } else if (action === 'checkout') {
       handleCheckout();
     }
+  };
+
+  const draftStatusText = () => {
+    if (!draftLoaded) return 'Checking draft...';
+    if (draftSaveStatus === 'saving') return 'Saving draft...';
+    if (draftSaveStatus === 'error') return 'Draft save failed';
+    if (draftLastSavedAt) {
+      return `Draft saved ${new Date(draftLastSavedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return 'Draft not saved yet';
   };
 
   const getMinDate = () => {
@@ -1660,6 +1984,51 @@ export default function BookAppointment() {
           </div>
           <div style={{ fontSize: '16px', fontWeight: 'bold', fontFamily: 'monospace', color: '#ef4444' }}>
             Time Remaining: {formatTimeLeft()}
+          </div>
+        </div>
+      )}
+
+      {(draftNotice || draftLoaded) && step < 7 && (
+        <div style={{
+          marginTop: '18px',
+          padding: '12px 16px',
+          border: '1px solid #dbeafe',
+          borderRadius: '6px',
+          backgroundColor: '#f8fbff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '14px',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ color: draftSaveStatus === 'error' ? '#b91c1c' : '#334155', fontSize: '13px', lineHeight: '1.45' }}>
+            <strong style={{ color: '#0c2340' }}>{draftStatusText()}</strong>
+            {draftNotice && (
+              <span style={{ display: 'block', marginTop: '3px', color: '#475569' }}>{draftNotice}</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => saveBookingDraft({ manual: true })}
+              className="btn btn-outline"
+              disabled={!draftLoaded || draftSaveStatus === 'saving' || loading}
+              style={{ padding: '8px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+            >
+              <Save size={14} />
+              Save Draft
+            </button>
+            {draftId && (
+              <button
+                type="button"
+                onClick={discardBookingDraft}
+                className="btn btn-outline"
+                style={{ padding: '8px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', borderColor: '#cbd5e1', color: '#475569' }}
+              >
+                <RotateCcw size={14} />
+                Start New
+              </button>
+            )}
           </div>
         </div>
       )}

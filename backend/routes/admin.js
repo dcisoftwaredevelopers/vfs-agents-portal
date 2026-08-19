@@ -169,6 +169,9 @@ const logAuditAction = async (req, action, entityType, entityId, oldValue, newVa
       let category = 'System';
       let priority = 'Info';
       let actionUrl = '';
+      let targetType = '';
+      let targetId = '';
+      let targetReference = '';
 
       switch (action) {
         case 'APPROVE_AGENT':
@@ -201,14 +204,18 @@ const logAuditAction = async (req, action, entityType, entityId, oldValue, newVa
           title = 'Booking Payment Approved';
           description = `UPI payment for appointment lock was verified successfully.`;
           category = 'Payment';
-          actionUrl = 'paymentVerification';
+          actionUrl = 'applications';
+          targetType = 'Appointment';
+          targetId = entityId ? entityId.toString() : '';
           break;
         case 'VERIFY_PAYMENT_REJECT':
           title = 'Booking Payment Rejected';
           description = `UPI payment proof for appointment was rejected.`;
           category = 'Payment';
           priority = 'Critical';
-          actionUrl = 'paymentVerification';
+          actionUrl = 'applications';
+          targetType = 'Appointment';
+          targetId = entityId ? entityId.toString() : '';
           break;
         case 'FREE_APPLICATION_REQUESTED':
           title = 'Free Application Verification Requested';
@@ -304,8 +311,16 @@ const logAuditAction = async (req, action, entityType, entityId, oldValue, newVa
       }
 
       if (title) {
+        if (targetType === 'Appointment' && targetId) {
+          try {
+            const targetAppointment = await Appointment.findById(targetId).select('referenceNumber').lean();
+            targetReference = targetAppointment?.referenceNumber || '';
+          } catch (targetErr) {
+            console.warn('Failed to load notification appointment target:', targetErr.message);
+          }
+        }
         let relatedUserId = null;
-        if (entityType === 'Agent' || entityType === 'Subscription' || entityType === 'Appointment') {
+        if (entityType === 'Agent' || entityType === 'Subscription') {
           relatedUserId = entityId;
         }
         await adminNotificationService.createAdminNotification({
@@ -314,7 +329,10 @@ const logAuditAction = async (req, action, entityType, entityId, oldValue, newVa
           category,
           userId: relatedUserId,
           priority,
-          actionUrl
+          actionUrl,
+          targetType,
+          targetId,
+          targetReference
         });
       }
     } catch (notifErr) {
@@ -537,7 +555,8 @@ router.get('/appointments', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER', 
     }
 
     if (search && search.trim()) {
-      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
+      const trimmedSearch = search.trim();
+      const searchRegex = new RegExp(escapeRegex(trimmedSearch), 'i');
       const matchingAgents = await Agent.find({
         $or: [
           { name: searchRegex },
@@ -558,6 +577,9 @@ router.get('/appointments', protect, authorize('SUPER_ADMIN', 'CENTER_MANAGER', 
         { 'applicantDetails.email': searchRegex },
         { 'applicantDetails.phone': searchRegex }
       ];
+      if (mongoose.Types.ObjectId.isValid(trimmedSearch)) {
+        query.$or.push({ _id: trimmedSearch });
+      }
     }
 
     const [totalAppointments, total, revenueAgg, appointments] = await Promise.all([
