@@ -105,6 +105,7 @@ export default function AdminDashboard() {
   const [filterMonth, setFilterMonth] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [adminSearchTerm, setAdminSearchTerm] = useState('');
+  const [applicationFocusNotice, setApplicationFocusNotice] = useState('');
   const [visaApplicationsPage, setVisaApplicationsPage] = useState(1);
   const visaApplicationsLimit = 100;
 
@@ -1587,6 +1588,25 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAdminNotificationOpen = (notification) => {
+    const targetSearch = notification.targetReference || notification.targetId || '';
+
+    if (notification.actionUrl === 'applications' && targetSearch) {
+      setActiveTab('applications');
+      setFilterMonth('');
+      setFilterStatus('All');
+      setAdminSearchTerm(targetSearch);
+      setVisaApplicationsPage(1);
+      setApplicationFocusNotice(`Showing application ${targetSearch} from notification.`);
+    } else if (notification.actionUrl) {
+      setActiveTab(notification.actionUrl);
+    }
+
+    if (!notification.read) {
+      handleMarkAdminRead(notification._id);
+    }
+  };
+
   useEffect(() => {
     fetchUnreadAdminCount();
   }, []);
@@ -2749,6 +2769,24 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </div>
+
+            {applicationFocusNotice && (
+              <div style={{ backgroundColor: '#eff6ff', borderLeft: '4px solid #2563eb', color: '#1e3a8a', padding: '12px 15px', borderRadius: '4px', marginBottom: '18px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                <span>{applicationFocusNotice}</span>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setApplicationFocusNotice('');
+                    setAdminSearchTerm('');
+                    setVisaApplicationsPage(1);
+                  }}
+                  style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#ffffff' }}
+                >
+                  Show All
+                </button>
+              </div>
+            )}
 
             {/* List Table */}
             <div className="card admin-table-card">
@@ -5341,12 +5379,7 @@ export default function AdminDashboard() {
                     <div
                       key={n._id}
                       onClick={() => {
-                        if (n.actionUrl) {
-                          setActiveTab(n.actionUrl);
-                        }
-                        if (!n.read) {
-                          handleMarkAdminRead(n._id);
-                        }
+                        handleAdminNotificationOpen(n);
                       }}
                       style={{
                         padding: '16px',
