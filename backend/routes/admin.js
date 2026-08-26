@@ -18,6 +18,7 @@ const PlatformSettings = require('../models/PlatformSettings');
 const Subscription = require('../models/Subscription');
 const AgentActivity = require('../models/AgentActivity');
 const AgentNotification = require('../models/AgentNotification');
+const WeeklyClassLink = require('../models/WeeklyClassLink');
 const mailService = require('../services/mailService');
 const {
   APPOINTMENT_CONFIRMATION_SENDER_NAME,
@@ -3760,6 +3761,46 @@ router.post('/notifications/mark-all-read', protect, authorize('SUPER_ADMIN'), a
     res.json({ success: true, message: 'All notifications marked as read' });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/class-links', protect, authorize('SUPER_ADMIN'), async (req, res) => {
+  try {
+    await WeeklyClassLink.ensureMultipleLinkIndexes();
+    const links = await WeeklyClassLink.find().sort({ weekStart: -1, className: 1 }).lean();
+    res.json(links);
+  } catch (error) {
+    res.status(500).json({ message: 'Unable to fetch weekly class links.' });
+  }
+});
+
+router.post('/class-links', protect, authorize('SUPER_ADMIN'), async (req, res) => {
+  try {
+    await WeeklyClassLink.ensureMultipleLinkIndexes();
+    const { id, className, weekStart, title, meetingUrl, schedule, isPublished = true } = req.body;
+    if (!['german', 'french'].includes(className)) return res.status(400).json({ message: 'Class must be german or french.' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(weekStart || ''))) return res.status(400).json({ message: 'A valid week start date is required.' });
+    if (!/^https:\/\/(meet\.google\.com|[a-z0-9.-]+\/meet\.google\.com)\//i.test(String(meetingUrl || '').trim())) return res.status(400).json({ message: 'Please enter a valid Google Meet link.' });
+    if (!String(title || '').trim() || !String(schedule || '').trim()) return res.status(400).json({ message: 'Title and schedule are required.' });
+
+    const values = { className, weekStart, title: String(title).trim(), meetingUrl: String(meetingUrl).trim(), schedule: String(schedule).trim(), isPublished: Boolean(isPublished), createdBy: req.user._id };
+    const link = id
+      ? await WeeklyClassLink.findByIdAndUpdate(id, values, { new: true, runValidators: true })
+      : await WeeklyClassLink.create(values);
+    if (!link) return res.status(404).json({ message: 'Class link not found.' });
+    res.status(200).json(link);
+  } catch (error) {
+    res.status(500).json({ message: 'Unable to save the weekly class link.' });
+  }
+});
+
+router.delete('/class-links/:id', protect, authorize('SUPER_ADMIN'), async (req, res) => {
+  try {
+    const deleted = await WeeklyClassLink.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: 'Class link not found.' });
+    res.json({ message: 'Weekly class link deleted.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Unable to delete the weekly class link.' });
   }
 });
 

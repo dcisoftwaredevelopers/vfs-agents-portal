@@ -278,6 +278,11 @@ export default function AdminDashboard() {
   });
   const [subscriptionSettingsStatus, setSubscriptionSettingsStatus] = useState('');
   const [loadingSubscriptionSettings, setLoadingSubscriptionSettings] = useState(false);
+  const [weeklyClassLinks, setWeeklyClassLinks] = useState([]);
+  const [weeklyClassLinkForm, setWeeklyClassLinkForm] = useState({ className: 'german', weekStart: '', title: '', meetingUrl: '', schedule: '', isPublished: true });
+  const [editingWeeklyClassLinkId, setEditingWeeklyClassLinkId] = useState(null);
+  const [weeklyClassLinkStatus, setWeeklyClassLinkStatus] = useState('');
+  const [loadingWeeklyClassLinks, setLoadingWeeklyClassLinks] = useState(false);
 
   // Fetch Centers
   const fetchCenters = async () => {
@@ -1125,6 +1130,80 @@ export default function AdminDashboard() {
     }
   };
 
+  const fetchWeeklyClassLinks = async () => {
+    if (!user || !isSuperAdmin) return;
+    setLoadingWeeklyClassLinks(true);
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/class-links`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to fetch weekly class links.');
+      setWeeklyClassLinks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setWeeklyClassLinkStatus(err.message);
+    } finally {
+      setLoadingWeeklyClassLinks(false);
+    }
+  };
+
+  const handleSaveWeeklyClassLink = async () => {
+    if (!user || !isSuperAdmin) return;
+    const isEditing = Boolean(editingWeeklyClassLinkId);
+    setLoadingWeeklyClassLinks(true);
+    setWeeklyClassLinkStatus('');
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/class-links`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...weeklyClassLinkForm, ...(isEditing ? { id: editingWeeklyClassLinkId } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to save weekly class link.');
+      setWeeklyClassLinks((previous) => isEditing
+        ? previous.map((item) => item._id === data._id ? data : item)
+        : [data, ...previous]);
+      setEditingWeeklyClassLinkId(null);
+      setWeeklyClassLinkForm({ className: 'german', weekStart: '', title: '', meetingUrl: '', schedule: '', isPublished: true });
+      setWeeklyClassLinkStatus(isEditing ? 'Weekly class link updated successfully.' : 'Weekly class link saved successfully.');
+    } catch (err) {
+      setWeeklyClassLinkStatus(err.message);
+    } finally {
+      setLoadingWeeklyClassLinks(false);
+    }
+  };
+
+  const handleEditWeeklyClassLink = (link) => {
+    setEditingWeeklyClassLinkId(link._id);
+    setWeeklyClassLinkForm({
+      className: link.className,
+      weekStart: link.weekStart,
+      title: link.title,
+      meetingUrl: link.meetingUrl,
+      schedule: link.schedule,
+      isPublished: link.isPublished,
+    });
+    setWeeklyClassLinkStatus('Editing selected weekly class link.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEditWeeklyClassLink = () => {
+    setEditingWeeklyClassLinkId(null);
+    setWeeklyClassLinkForm({ className: 'german', weekStart: '', title: '', meetingUrl: '', schedule: '', isPublished: true });
+    setWeeklyClassLinkStatus('');
+  };
+
+  const handleDeleteWeeklyClassLink = async (id) => {
+    if (!window.confirm('Delete this weekly class link?')) return;
+    try {
+      const res = await apiFetch(`${API_ROOT_URL}/admin/class-links/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to delete weekly class link.');
+      setWeeklyClassLinks((previous) => previous.filter((item) => item._id !== id));
+      setWeeklyClassLinkStatus('Weekly class link deleted.');
+    } catch (err) {
+      setWeeklyClassLinkStatus(err.message);
+    }
+  };
+
   const fetchAdminFreeSubscriptionSlots = async () => {
     if (!user || !isSuperAdmin) return;
     setLoadingAdminFreeSlots(true);
@@ -1653,6 +1732,9 @@ export default function AdminDashboard() {
     }
     if (activeTab === 'subscriptionSettings') {
       fetchSubscriptionSettings();
+    }
+    if (activeTab === 'weeklyClassLinks') {
+      fetchWeeklyClassLinks();
     }
     if (activeTab === 'slots') {
       fetchBlocksHistory();
@@ -2237,6 +2319,7 @@ export default function AdminDashboard() {
             { id: 'freeApplications', label: 'Free Application Verification', icon: <CheckCircle size={16} /> },
             { id: 'subPayments', label: 'Subscription Payments', icon: <CreditCard size={16} /> },
             { id: 'subscriptionSettings', label: 'Subscription Settings', icon: <Edit size={16} /> },
+            { id: 'weeklyClassLinks', label: 'Weekly Class Links', icon: <Calendar size={16} /> },
             { id: 'slots', label: 'Slot & Capacity Management', icon: <Calendar size={16} /> },
             { id: 'closures', label: 'Emergency Closures', icon: <ShieldAlert size={16} /> },
             { id: 'bulkupload', label: 'Bulk Slot Upload', icon: <Upload size={16} /> },
@@ -3369,6 +3452,39 @@ export default function AdminDashboard() {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'weeklyClassLinks' && (
+          <div className="card" style={{ padding: '30px', maxWidth: '900px' }}>
+            <h3 style={{ margin: '0 0 8px', color: '#0c2340', border: 'none', padding: 0 }}>Weekly Class Links</h3>
+            <p style={{ margin: '0 0 22px', color: '#64748b', fontSize: '13px' }}>Publish one German or French Google Meet link for each week. Saving the same class and week updates the existing link.</p>
+            {weeklyClassLinkStatus && <div style={{ marginBottom: '18px', padding: '12px', borderRadius: '6px', background: weeklyClassLinkStatus.includes('successfully') || weeklyClassLinkStatus.includes('deleted') ? '#d1fae5' : '#fee2e2', color: weeklyClassLinkStatus.includes('successfully') || weeklyClassLinkStatus.includes('deleted') ? '#047857' : '#b91c1c', fontSize: '13px', fontWeight: 700 }}>{weeklyClassLinkStatus}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+              <label><span className="admin-form-label">Class</span><select value={weeklyClassLinkForm.className} onChange={(e) => setWeeklyClassLinkForm((prev) => ({ ...prev, className: e.target.value }))} className="form-control"><option value="german">German Classes</option><option value="french">French Classes</option></select></label>
+              <label><span className="admin-form-label">Week starting Monday</span><input type="date" value={weeklyClassLinkForm.weekStart} onChange={(e) => setWeeklyClassLinkForm((prev) => ({ ...prev, weekStart: e.target.value }))} className="form-control" /></label>
+              <label><span className="admin-form-label">Batch title</span><input type="text" value={weeklyClassLinkForm.title} onChange={(e) => setWeeklyClassLinkForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="German A1 Weekend Batch" className="form-control" /></label>
+              <label><span className="admin-form-label">Schedule</span><input type="text" value={weeklyClassLinkForm.schedule} onChange={(e) => setWeeklyClassLinkForm((prev) => ({ ...prev, schedule: e.target.value }))} placeholder="Saturday, 10:00 AM" className="form-control" /></label>
+              <label style={{ gridColumn: '1 / -1' }}><span className="admin-form-label">Google Meet link</span><input type="url" value={weeklyClassLinkForm.meetingUrl} onChange={(e) => setWeeklyClassLinkForm((prev) => ({ ...prev, meetingUrl: e.target.value }))} placeholder="https://meet.google.com/xxx-xxxx-xxx" className="form-control" /></label>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', color: '#334155', fontSize: '13px', fontWeight: 700 }}><input type="checkbox" checked={weeklyClassLinkForm.isPublished} onChange={(e) => setWeeklyClassLinkForm((prev) => ({ ...prev, isPublished: e.target.checked }))} /> Publish this link to subscribed agents</label>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '22px' }}>
+              <button type="button" onClick={handleSaveWeeklyClassLink} disabled={loadingWeeklyClassLinks} className="btn btn-navy-gradient" style={{ padding: '12px 22px', fontWeight: 800 }}>{loadingWeeklyClassLinks ? 'Saving...' : editingWeeklyClassLinkId ? 'Update Weekly Link' : 'Save Weekly Link'}</button>
+              {editingWeeklyClassLinkId && <button type="button" onClick={cancelEditWeeklyClassLink} disabled={loadingWeeklyClassLinks} className="btn btn-outline" style={{ padding: '12px 22px', fontWeight: 800 }}>Cancel Edit</button>}
+            </div>
+
+            <div style={{ marginTop: '32px', borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
+              <h4 style={{ margin: '0 0 14px', color: '#0c2340' }}>Published and scheduled links</h4>
+              {loadingWeeklyClassLinks ? <p style={{ color: '#64748b' }}>Loading links...</p> : weeklyClassLinks.length === 0 ? <p style={{ color: '#64748b' }}>No weekly class links created yet.</p> : weeklyClassLinks.map((link) => (
+                <div key={link._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '15px', flexWrap: 'wrap', padding: '14px 0', borderBottom: '1px solid #e2e8f0' }}>
+                  <div><strong style={{ color: '#0c2340' }}>{link.className === 'german' ? '🇩🇪 German' : '🇫🇷 French'} | {link.weekStart}</strong><div style={{ color: '#64748b', fontSize: '12px', marginTop: '4px' }}>{link.title} | {link.schedule}</div><a href={link.meetingUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: '12px' }}>{link.meetingUrl}</a></div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="button" onClick={() => handleEditWeeklyClassLink(link)} className="btn btn-outline" style={{ color: '#0c2340' }}>Edit</button>
+                    <button type="button" onClick={() => handleDeleteWeeklyClassLink(link._id)} className="btn btn-outline" style={{ color: '#b91c1c', borderColor: '#fecaca' }}>Delete</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

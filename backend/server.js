@@ -50,7 +50,8 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5174',
-  'http://127.0.0.1:5174'
+  'http://127.0.0.1:5174',
+  'http://192.168.154.1:5173'
 ];
 
 // Matches any Vercel preview URL for this project, e.g.
@@ -161,6 +162,8 @@ app.use('/api/tracking', require('./routes/tracking'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/subscription', require('./routes/subscription'));
 app.use('/api/referral', require('./routes/referral'));
+app.use('/api/contact', require('./routes/contact'));
+app.use('/api/class-links', require('./routes/classLinks'));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

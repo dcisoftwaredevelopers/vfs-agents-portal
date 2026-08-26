@@ -1,18 +1,17 @@
-import React, { useState, useRef } from 'react';
-import emailjs from '@emailjs/browser';
+import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import { MapPin, Phone, Mail } from 'lucide-react';
+import { API_ROOT_URL } from '../config/api';
 import './Contact.css';
 
 const Contact = () => {
-  const form = useRef();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     email: '',
     country: '',   
-    // visaType: ''
+    visaType: '',
     message: ''
   });
 
@@ -80,52 +79,29 @@ const Contact = () => {
     return true;
   };
 
-  const sendEmail = (e) => {
+  const sendEmail = async (e) => {
     e.preventDefault();
 
     if (!validateForm()) return;
 
     setIsSubmitting(true);
-
-    const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID || '';
-    const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID || '';
-    const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || '';
-
-    // Check if the service keys are not configured or still placeholders
-    if (
-      !serviceId || serviceId === 'your_service_id_here' || serviceId === 'YOUR_SERVICE_ID' ||
-      !templateId || templateId === 'your_template_id_here' || templateId === 'YOUR_TEMPLATE_ID' ||
-      !publicKey || publicKey === 'your_public_key_here' || publicKey === 'YOUR_PUBLIC_KEY'
-    ) {
-      toast.error('EmailJS keys are not configured in your environment variable configuration.');
-      setIsSubmitting(false);
-      return;
-    }
-
-    // Construct the template parameters exactly as requested
-    const templateParams = {
-      full_name: formData.name.trim(),
-      phone: formData.phone.trim(),
-      email: formData.email.trim(),
-      country: formData.country,
-      visa_type: formData.visaType,
-      message: formData.message.trim(),
-      subject: `Consultation Enquiry - ${formData.visaType} for ${formData.country}`
-    };
-
-    emailjs.send(serviceId, templateId, templateParams, publicKey)
-      .then((result) => {
-          console.log('EmailJS Success:', result.text);
-          toast.success('Consultation request submitted successfully!');
-          setFormData({ name: '', phone: '', email: '', country: '', visaType: '', message: '' });
-      }, (error) => {
-          console.error('EmailJS Error:', error);
-          const errorMsg = error?.text || error?.message || 'Failed to submit consultation request. Please try again later.';
-          toast.error(`Submission error: ${errorMsg}`);
-      })
-      .finally(() => {
-        setIsSubmitting(false);
+    try {
+      const response = await fetch(`${API_ROOT_URL}/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(formData),
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to submit consultation request.');
+      toast.success(data.message || 'Consultation request submitted successfully!');
+      setFormData({ name: '', phone: '', email: '', country: '', visaType: '', message: '' });
+    } catch (error) {
+      console.error('Contact submission failed:', error);
+      toast.error(error.message || 'Failed to submit consultation request. Please try again later.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -195,7 +171,7 @@ const Contact = () => {
 
             <div className="contact-form-wrapper glass-card">
               <h2 className="info-title mb-4">Schedule Consultation</h2>
-              <form ref={form} onSubmit={sendEmail} className="contact-form">
+              <form onSubmit={sendEmail} className="contact-form">
                 <div className="form-row">
                   <div className="form-group">
                     <label>Full Name *</label>
@@ -248,7 +224,7 @@ const Contact = () => {
                 </div>
 
                 <div className="form-group">
-                 <label>Visa Type</label>
+                  <label>Visa Type *</label>
                   <select name="visaType" value={formData.visaType} onChange={handleChange} className="form-input">
                     <option value="">Select Visa Type</option>
                     <option value="Work Visa">Work Visa</option>

@@ -20,6 +20,7 @@ const AgentDashboard = lazy(() => import('./pages/AgentDashboard'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminResetPassword = lazy(() => import('./pages/AdminResetPassword'));
 const AgentResetPassword = lazy(() => import('./pages/AgentResetPassword'));
+const Classes = lazy(() => import('./pages/Classes'));
 
 const LoadingFallback = () => (
   <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -46,6 +47,7 @@ function App() {
                 <Route path="/admin-login" element={<AdminLogin />} />
                 <Route path="/admin-reset-password" element={<AdminResetPassword />} />
                 <Route path="/reset-password" element={<AgentResetPassword />} />
+                <Route path="/classes/:className" element={<ProtectedRoute><Classes /></ProtectedRoute>} />
                 <Route
                   path="/admin-dashboard"
                   element={
