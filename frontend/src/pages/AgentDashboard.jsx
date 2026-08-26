@@ -828,6 +828,48 @@ export default function AgentDashboard() {
         </div>
       </div>
 
+      <section className="agent-dashboard-overview" aria-label="Agent dashboard overview">
+        <div className="agent-dashboard-welcome">
+          <span className="agent-dashboard-eyebrow">AGENT WORKSPACE</span>
+          <h1>Welcome back, {user.ownerName || 'Agent'}</h1>
+          <p>Keep your visa applications moving with a clear view of your agency activity.</p>
+        </div>
+        <div className="agent-dashboard-quick-actions">
+          <Link to="/classes/german" className="agent-dashboard-quick-action-link">
+            <Globe size={17} /> German class
+          </Link>
+          <button type="button" onClick={() => setActiveTab('bookings')}>
+            <Calendar size={17} /> View bookings
+          </button>
+          <button type="button" onClick={() => setActiveTab('notifications')}>
+            <Bell size={17} /> Check alerts
+          </button>
+        </div>
+      </section>
+
+      <section className="agent-dashboard-metric-grid" aria-label="Agency summary">
+        <button type="button" className="agent-dashboard-metric" onClick={() => setActiveTab('bookings')}>
+          <span className="agent-dashboard-metric-icon blue"><Calendar size={19} /></span>
+          <span><small>Total bookings</small><strong>{bookings.length}</strong></span>
+          <ChevronRight size={17} />
+        </button>
+        <button type="button" className="agent-dashboard-metric" onClick={() => setActiveTab('billing')}>
+          <span className="agent-dashboard-metric-icon gold"><FileText size={19} /></span>
+          <span><small>Invoices issued</small><strong>{invoices.length}</strong></span>
+          <ChevronRight size={17} />
+        </button>
+        <button type="button" className="agent-dashboard-metric" onClick={() => setActiveTab('notifications')}>
+          <span className="agent-dashboard-metric-icon coral"><Bell size={19} /></span>
+          <span><small>Unread alerts</small><strong>{unreadNotificationsCount}</strong></span>
+          <ChevronRight size={17} />
+        </button>
+        <button type="button" className="agent-dashboard-metric" onClick={() => setActiveTab('subscription')}>
+          <span className="agent-dashboard-metric-icon green"><ShieldCheck size={19} /></span>
+          <span><small>Account status</small><strong>{user.status || 'Pending'}</strong></span>
+          <ChevronRight size={17} />
+        </button>
+      </section>
+
       <div className="agent-dashboard-layout" style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
 
         {/* Sidebar nav */}

@@ -30,6 +30,7 @@ exports.sendMail = async (mailOptions) => {
       to: mailOptions.to,
       subject: removeLegacyEmailBranding(mailOptions.subject),
       html: removeLegacyEmailBranding(mailOptions.html),
+      ...(mailOptions.replyTo ? { reply_to: mailOptions.replyTo } : {}),
     };
 
     const attachments = normalizeAttachments(mailOptions.attachments);
