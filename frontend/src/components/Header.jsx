@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
-import { Globe, LogOut, Building2, KeyRound, Menu, X } from 'lucide-react';
+import { Globe, LogOut, Building2, KeyRound, Menu, X, ChevronDown, BookOpen } from 'lucide-react';
 import { LanguageContext } from '../context/LanguageContext';
 import {
   selectCurrentUser,
@@ -56,6 +56,7 @@ export default function Header() {
   const dispatch = useDispatch();
   const { currentLanguage, t, changeLanguage } = useContext(LanguageContext);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isClassesOpen, setIsClassesOpen] = useState(false);
 
   const user = useSelector(selectCurrentUser);
   const admin = useSelector(selectCurrentAdmin);
@@ -205,6 +206,17 @@ export default function Header() {
               <NavLink to="/agent-dashboard" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
                 {t('menu.agent_dashboard')}
               </NavLink>
+              <div className="classes-nav-dropdown" onMouseLeave={() => setIsClassesOpen(false)}>
+                <button type="button" className="nav-link classes-nav-trigger" onClick={() => setIsClassesOpen((open) => !open)} aria-expanded={isClassesOpen}>
+                  <BookOpen size={15} /> Classes <ChevronDown size={14} className={isClassesOpen ? 'classes-chevron-open' : ''} />
+                </button>
+                {isClassesOpen && (
+                  <div className="classes-nav-menu">
+                    <Link to="/classes/german" onClick={() => setIsClassesOpen(false)}><span>🇩🇪</span> German Classes</Link>
+                    <Link to="/classes/french" onClick={() => setIsClassesOpen(false)}><span>🇫🇷</span> French Classes</Link>
+                  </div>
+                )}
+              </div>
               <NavLink to="/book" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
                 {t('menu.book_appointment')}
               </NavLink>
@@ -320,6 +332,11 @@ export default function Header() {
             ) : user ? (
               <>
                 <NavLink to="/agent-dashboard" onClick={closeMobileMenu}>{t('menu.agent_dashboard')}</NavLink>
+                <div className="mobile-classes-links">
+                  <span><BookOpen size={18} /> Classes</span>
+                  <Link to="/classes/german" onClick={closeMobileMenu}>🇩🇪 German Classes</Link>
+                  <Link to="/classes/french" onClick={closeMobileMenu}>🇫🇷 French Classes</Link>
+                </div>
                 <NavLink to="/book" onClick={closeMobileMenu}>{t('menu.book_appointment')}</NavLink>
                 <NavLink to="/track" onClick={closeMobileMenu}>{t('menu.track_applications')}</NavLink>
                 <a href="#benefits" onClick={closeMobileMenu}>Agent Benefits</a>
